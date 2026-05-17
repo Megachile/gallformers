@@ -188,6 +188,7 @@ defmodule GallformersWeb.Router do
       live "/galls", GallsBrowseLive
       live "/hosts", HostsBrowseLive
       live "/places", PlacesBrowseLive
+      live "/phenology", PhenologyLive
 
       # ID Tool
       live "/id", IDLive

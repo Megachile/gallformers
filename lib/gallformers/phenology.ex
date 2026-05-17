@@ -27,10 +27,29 @@ defmodule Gallformers.Phenology do
   alias Gallformers.Phenology.Blacklist
   alias Gallformers.Phenology.Observation
   alias Gallformers.Repo
+  alias Gallformers.Species.Species
 
   # ----------------------------------------------------------------------
   # Observations
   # ----------------------------------------------------------------------
+
+  @doc """
+  Returns gall species that have at least one phenology observation, with
+  the observation count attached. Ordered by species name. Used by the
+  phenology explorer's species selector and by per-gall data-availability
+  widgets.
+  """
+  @spec list_species_with_counts() :: [%{species_id: integer(), name: String.t(), n_obs: non_neg_integer()}]
+  def list_species_with_counts do
+    from(o in Observation,
+      join: s in Species,
+      on: s.id == o.species_id,
+      group_by: [s.id, s.name],
+      order_by: s.name,
+      select: %{species_id: s.id, name: s.name, n_obs: count(o.id)}
+    )
+    |> Repo.all()
+  end
 
   @doc """
   Returns observations for a single gall species, ordered by date.

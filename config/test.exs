@@ -17,7 +17,10 @@ config :gallformers, Gallformers.Repo,
   username: System.get_env("PGUSER", System.get_env("USER")),
   password: System.get_env("PGPASSWORD"),
   hostname: System.get_env("PGHOST", "localhost"),
-  pool_size: 5,
+  # Pool size needs headroom for parallel `async: true` tests; the default of 5
+  # starves the sandbox on slower hosts (notably Postgres in WSL) and shows up
+  # as `DBConnection.ConnectionError: queue_timeout` failures across many tests.
+  pool_size: String.to_integer(System.get_env("PG_POOL_SIZE", "25")),
   pool: Ecto.Adapters.SQL.Sandbox
 
 # Use stub instead of real WCVP database for WCVP lookups in most tests

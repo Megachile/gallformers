@@ -17,6 +17,13 @@ defmodule Gallformers.Phenology.Observation do
 
   @source_types ~w(literature inat)
 
+  # Accepted phenophase values describe the gall structure's state, including
+  # post-emergence ("Free-living" for adult inducers found outside the gall).
+  # Documented vocabulary, NOT a CHECK constraint — new sources may introduce
+  # values we haven't seen yet and they should land in the DB rather than be
+  # silently dropped.
+  @phenophases ~w(developing maturing dormant perimature oviscar senescent Free-living)
+
   @required_fields [:species_id, :source_type, :date, :doy, :latitude, :longitude]
 
   @optional_fields [
@@ -104,6 +111,14 @@ defmodule Gallformers.Phenology.Observation do
   """
   @spec source_types() :: [String.t()]
   def source_types, do: @source_types
+
+  @doc """
+  Returns the documented phenophase vocabulary. NOT enforced at the DB or
+  changeset level — the value is a free-text string so unfamiliar values can
+  still be imported and surfaced for review.
+  """
+  @spec phenophases() :: [String.t()]
+  def phenophases, do: @phenophases
 
   @doc """
   Creates a changeset for a phenology observation.

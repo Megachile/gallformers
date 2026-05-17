@@ -31,6 +31,7 @@ defmodule Gallformers.Phenology.Observation do
     :state,
     :country,
     :lifestage,
+    :viability,
     :seasind,
     :acchours,
     :source_url,
@@ -56,6 +57,7 @@ defmodule Gallformers.Phenology.Observation do
           state: String.t() | nil,
           country: String.t() | nil,
           lifestage: String.t() | nil,
+          viability: String.t() | nil,
           seasind: float() | nil,
           acchours: float() | nil,
           source_url: String.t() | nil,
@@ -80,6 +82,7 @@ defmodule Gallformers.Phenology.Observation do
     field :state, :string
     field :country, :string
     field :lifestage, :string
+    field :viability, :string
 
     field :seasind, :float
     field :acchours, :float

@@ -146,6 +146,94 @@ defmodule Gallformers.PhenologyTest do
     end
   end
 
+  describe "search_observations/1" do
+    setup do
+      sp_acraspis = create_gall_species("Acraspis erinacei (agamic)")
+      sp_aulacidea = create_gall_species("Aulacidea solidaginis (sexgen)")
+      sp_andricus = create_gall_species("Andricus quercuscalifornicus (agamic)")
+
+      {:ok, _} =
+        Phenology.create_observation(valid_attrs(sp_acraspis.id, %{phenophase: "developing"}))
+
+      {:ok, _} =
+        Phenology.create_observation(valid_attrs(sp_aulacidea.id, %{phenophase: "Free-living"}))
+
+      {:ok, _} =
+        Phenology.create_observation(valid_attrs(sp_andricus.id, %{phenophase: "maturing"}))
+
+      %{acraspis: sp_acraspis, aulacidea: sp_aulacidea, andricus: sp_andricus}
+    end
+
+    test "no filters returns all gall obs with denormalized species name" do
+      results = Phenology.search_observations()
+      assert length(results) == 3
+      names = Enum.map(results, & &1.species_name) |> Enum.sort()
+
+      assert names == [
+               "Acraspis erinacei (agamic)",
+               "Andricus quercuscalifornicus (agamic)",
+               "Aulacidea solidaginis (sexgen)"
+             ]
+    end
+
+    test "search term filters by ILIKE on species name" do
+      results = Phenology.search_observations(%{search: ["Acraspis"]})
+      assert length(results) == 1
+      assert hd(results).species_name == "Acraspis erinacei (agamic)"
+    end
+
+    test "multiple search terms OR together" do
+      results = Phenology.search_observations(%{search: ["Acraspis", "Aulacidea"]})
+      assert length(results) == 2
+    end
+
+    test "blank search terms are dropped (no filter applied)" do
+      assert Phenology.search_observations(%{search: ["", "  "]}) |> length() == 3
+    end
+
+    test "generation :sexgen matches only (sexgen) species" do
+      results = Phenology.search_observations(%{generation: :sexgen})
+      assert length(results) == 1
+      assert hd(results).species_name == "Aulacidea solidaginis (sexgen)"
+    end
+
+    test "generation :agamic matches only (agamic) species" do
+      results = Phenology.search_observations(%{generation: :agamic})
+      assert length(results) == 2
+    end
+
+    test "phenophases filter restricts to the given phenophases" do
+      results = Phenology.search_observations(%{phenophases: ["maturing"]})
+      assert length(results) == 1
+      assert hd(results).phenophase == "maturing"
+    end
+
+    test "filters compose (search + generation)" do
+      results =
+        Phenology.search_observations(%{
+          search: ["Acraspis", "Aulacidea"],
+          generation: :sexgen
+        })
+
+      assert length(results) == 1
+      assert hd(results).species_name == "Aulacidea solidaginis (sexgen)"
+    end
+
+    test "excludes host-plant rows (taxoncode != gall)" do
+      {:ok, plant} =
+        Repo.insert(%Species{name: "Quercus plant", taxoncode: "plant", datacomplete: false})
+
+      # Insert directly bypassing changeset validation since plant species
+      # shouldn't have phenology obs in practice.
+      assert {:ok, _} =
+               Phenology.create_observation(valid_attrs(plant.id, %{phenophase: "maturing"}))
+
+      results = Phenology.search_observations()
+      assert length(results) == 3
+      refute Enum.any?(results, &(&1.species_name == "Quercus plant"))
+    end
+  end
+
   describe "blacklist" do
     test "blacklist/1 then blacklisted?/1 roundtrip" do
       refute Phenology.blacklisted?(42)

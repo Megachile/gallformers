@@ -31,8 +31,6 @@ export default {
 
   renderChart() {
     const points = JSON.parse(this.el.dataset.points || '[]')
-    const generation = this.el.dataset.generation || 'unknown'
-    const color = GEN_COLOR[generation] || GEN_COLOR.unknown
 
     select(this.el).selectAll('*').remove()
     if (points.length === 0) {
@@ -40,7 +38,7 @@ export default {
         .style('padding', '40px')
         .style('text-align', 'center')
         .style('color', '#888')
-        .text('No observations for this species.')
+        .text('No observations to display.')
       return
     }
 
@@ -93,7 +91,9 @@ export default {
       .attr('text-anchor', 'middle').style('font-size', '12px').style('fill', '#666')
       .text('Latitude (°N)')
 
-    // Points
+    // Points — color per-point by generation (multi-species safe; pre-multi-
+    // species the LV passed a single generation via data-generation, but
+    // each point now carries its own).
     const symbolGen = symbol().size(60)
     svg.selectAll('path.obs')
       .data(points).enter()
@@ -101,15 +101,18 @@ export default {
         .attr('class', 'obs')
         .attr('d', d => symbolGen.type(PHENO_SYMBOL[d.phenophase] || symbolCircle)())
         .attr('transform', d => `translate(${x(d.doy)},${y(d.lat)})`)
-        .attr('fill', color)
+        .attr('fill', d => GEN_COLOR[d.generation] || GEN_COLOR.unknown)
         .attr('fill-opacity', 0.55)
         .attr('stroke', '#222')
         .attr('stroke-width', 0.4)
         .style('cursor', 'pointer')
         .on('mouseover', function (event, d) {
           select(this).attr('fill-opacity', 1)
+          const speciesLine = d.species_name
+            ? `<b>${escapeHtml(d.species_name)}</b><br>`
+            : ''
           tooltip.style('visibility', 'visible')
-            .html(`<b>${escapeHtml(d.date)}</b>
+            .html(`${speciesLine}<b>${escapeHtml(d.date)}</b>
                    <br>DOY ${d.doy} · lat ${d.lat.toFixed(2)}
                    <br>phenophase: ${escapeHtml(d.phenophase)}
                    <br>lifestage: ${escapeHtml(d.lifestage || '—')}

@@ -78,6 +78,95 @@ defmodule Gallformers.Phenology do
   end
 
   @doc """
+  Returns observations matching the given filters, with denormalized species
+  name. Used by the public `/phenology` explorer to drive its multi-species
+  scatter; each returned map is shaped for direct passing to the chart hook.
+
+  Filters (all optional):
+    * `:search` — list of name fragments. Returned obs belong to species
+      whose name ILIKEs at least one fragment. Empty / nil = no name filter.
+    * `:generation` — `:all` (default), `:sexgen`, or `:agamic`. Matches on
+      the `(sexgen)` / `(agamic)` suffix convention in `species.name`.
+    * `:phenophases` — list of phenophase values to keep. Empty / nil =
+      no phenophase filter (all obs returned regardless of phenophase).
+
+  Always scoped to `species.taxoncode == "gall"` so host-plant rows can't
+  leak in if they ever land in this table.
+  """
+  @spec search_observations(map()) :: [map()]
+  def search_observations(filters \\ %{}) do
+    from(o in Observation,
+      join: s in Species,
+      on: s.id == o.species_id,
+      where: s.taxoncode == "gall",
+      order_by: [asc: o.date],
+      select: %{
+        id: o.id,
+        species_id: o.species_id,
+        species_name: s.name,
+        date: o.date,
+        doy: o.doy,
+        phenophase: o.phenophase,
+        lifestage: o.lifestage,
+        viability: o.viability,
+        latitude: o.latitude,
+        longitude: o.longitude,
+        source_type: o.source_type,
+        site: o.site,
+        state: o.state,
+        country: o.country
+      }
+    )
+    |> apply_search_filter(Map.get(filters, :search))
+    |> apply_generation_filter(Map.get(filters, :generation, :all))
+    |> apply_phenophase_filter(Map.get(filters, :phenophases))
+    |> Repo.all()
+  end
+
+  defp apply_search_filter(query, nil), do: query
+  defp apply_search_filter(query, []), do: query
+
+  defp apply_search_filter(query, terms) when is_list(terms) do
+    patterns =
+      terms
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.map(&"%#{&1}%")
+
+    case patterns do
+      [] ->
+        query
+
+      _ ->
+        # OR across all name patterns: search matches "any of these fragments
+        # anywhere in the species name."
+        dyn =
+          Enum.reduce(patterns, false, fn pattern, acc ->
+            dynamic([_, s], ^acc or ilike(s.name, ^pattern))
+          end)
+
+        from(q in query, where: ^dyn)
+    end
+  end
+
+  defp apply_generation_filter(query, :sexgen) do
+    from([_, s] in query, where: ilike(s.name, "%(sexgen)%"))
+  end
+
+  defp apply_generation_filter(query, :agamic) do
+    from([_, s] in query, where: ilike(s.name, "%(agamic)%"))
+  end
+
+  defp apply_generation_filter(query, _), do: query
+
+  defp apply_phenophase_filter(query, nil), do: query
+  defp apply_phenophase_filter(query, []), do: query
+
+  defp apply_phenophase_filter(query, phenophases) when is_list(phenophases) do
+    from(o in query, where: o.phenophase in ^phenophases)
+  end
+
+  @doc """
   Returns observations whose raw and processed phenophase disagree — i.e. an
   admin correction is in effect, or upstream data drifted and the correction
   needs re-review.

@@ -13,27 +13,13 @@ defmodule GallformersWeb.PhenologyLive do
 
   alias Gallformers.Phenology
   alias Gallformers.Phenology.Prediction
-  alias Gallformers.Species
-
-  # Phenophases offered in the explorer UI, in display order. NOT the same
-  # as `Observation.phenophases()` — `senescent` is intentionally omitted
-  # (uninteresting for the prediction use case Adam built the tool around).
-  # New phenophases land in the DB regardless; this is a UX-only list.
-  @explorer_phenophases ~w(oviscar developing dormant maturing Free-living perimature)
-
-  # Pre-populated default filters on first visit (no URL params). Defaults
-  # to one well-observed species + a useful phenophase subset so the page
-  # loads quickly and is interesting out of the box. Each filter has
-  # independent override semantics — see parse_*_param below.
-  @default_search ["Dryocosmus quercuspalustris"]
-  @default_phenophases ~w(maturing perimature Free-living)
-  @default_target_lat 42.0
+  alias GallformersWeb.PhenologyFilters
 
   @generations [:all, :sexgen, :agamic]
 
   @impl true
   def mount(params, _session, socket) do
-    filters = filters_from_params(params)
+    filters = PhenologyFilters.from_url_params(params)
 
     socket =
       socket
@@ -44,7 +30,7 @@ defmodule GallformersWeb.PhenologyLive do
         page_url: "/phenology",
         page_image: nil,
         page_json_ld: nil,
-        explorer_phenophases: @explorer_phenophases,
+        explorer_phenophases: PhenologyFilters.explorer_phenophases(),
         filters: filters,
         observations: [],
         selected_observations: [],
@@ -60,7 +46,7 @@ defmodule GallformersWeb.PhenologyLive do
 
   @impl true
   def handle_event("update_filters", params, socket) do
-    filters = filters_from_form(params, socket.assigns.filters)
+    filters = PhenologyFilters.from_form_params(params)
 
     {:noreply,
      socket
@@ -70,13 +56,13 @@ defmodule GallformersWeb.PhenologyLive do
      |> load_observations()
      |> apply_selection()
      |> compute_predictions()
-     |> push_patch(to: ~p"/phenology?#{filters_to_query(filters)}", replace: true)}
+     |> push_patch(to: ~p"/phenology?#{PhenologyFilters.to_query(filters)}", replace: true)}
   end
 
   # Brush events from the D3 hook. Bounds are in data domain (DOY for x,
   # latitude for y); the hook pre-translates from pixel space.
   def handle_event("set_selection", params, socket) do
-    selection = parse_selection(params)
+    selection = PhenologyFilters.parse_brush(params)
 
     {:noreply,
      socket
@@ -93,223 +79,6 @@ defmodule GallformersWeb.PhenologyLive do
 
   @impl true
   def handle_params(_params, _url, socket), do: {:noreply, socket}
-
-  defp parse_selection(%{
-         "doy_min" => dmin,
-         "doy_max" => dmax,
-         "lat_min" => lmin,
-         "lat_max" => lmax
-       }) do
-    with {:ok, dmin} <- to_number(dmin),
-         {:ok, dmax} <- to_number(dmax),
-         {:ok, lmin} <- to_number(lmin),
-         {:ok, lmax} <- to_number(lmax) do
-      %{doy_min: trunc(dmin), doy_max: trunc(dmax), lat_min: lmin, lat_max: lmax}
-    else
-      _ -> nil
-    end
-  end
-
-  defp parse_selection(_), do: nil
-
-  defp to_number(n) when is_number(n), do: {:ok, n}
-
-  defp to_number(s) when is_binary(s) do
-    case Float.parse(s) do
-      {f, _} -> {:ok, f}
-      :error -> :error
-    end
-  end
-
-  defp to_number(_), do: :error
-
-  # ----------------------------------------------------------------------
-  # Filter parsing
-  # ----------------------------------------------------------------------
-
-  # Parse filters from URL params on mount.
-  #
-  # URL semantics (key absent → use default; key present-but-empty → that
-  # filter cleared explicitly):
-  # - `search` absent → default search; `search=` → no search filter (all species)
-  # - `phen` absent → default phenophases; `phen=` → empty (no obs match)
-  # - `gen` absent → :all; `gen=sexgen|agamic` → restrict; anything else → :all
-  # - `species_id=N` (legacy from the per-gall widget link) translates to a
-  #   single search term and overrides `search` only when no `search` is given.
-  defp filters_from_params(params) do
-    %{
-      search: parse_search_param(params),
-      generation: parse_generation(params["gen"]),
-      phenophases: parse_phenophases_param(params),
-      display_mode: parse_display_mode(params["display"]),
-      target_lat: parse_target_lat(params["lat"])
-    }
-  end
-
-  # Form semantics: every change event sends the full form state. Absent
-  # key means "user cleared it" (e.g. all checkboxes off), not "use default."
-  defp filters_from_form(form_params, _prior) do
-    %{
-      search: parse_search_value(form_params["search"]),
-      generation: parse_generation(form_params["generation"]),
-      phenophases: parse_phenophases_form(form_params["phenophases"]),
-      display_mode: parse_display_mode(form_params["display"]),
-      target_lat: parse_target_lat(form_params["target_lat"])
-    }
-  end
-
-  defp parse_target_lat(nil), do: @default_target_lat
-  defp parse_target_lat(""), do: @default_target_lat
-
-  defp parse_target_lat(value) when is_binary(value) do
-    case Float.parse(String.trim(value)) do
-      {f, _} when f >= -90.0 and f <= 90.0 -> f
-      _ -> @default_target_lat
-    end
-  end
-
-  defp parse_target_lat(value) when is_number(value) and value >= -90 and value <= 90,
-    do: value * 1.0
-
-  defp parse_target_lat(_), do: @default_target_lat
-
-  # The chart is always rendered above whichever panel is selected. The
-  # panel below the chart is one of:
-  #   :predictions (default) — the prediction text outputs
-  #   :data_table — the obs table, narrowed by the current brush selection
-  #   :species_list — distinct species (also brush-narrowed)
-  # `chart` is accepted for back-compat with older URLs but treated as
-  # `predictions` since the chart is no longer toggleable.
-  defp parse_display_mode("table"), do: :data_table
-  defp parse_display_mode("species"), do: :species_list
-  defp parse_display_mode(_), do: :predictions
-
-  defp parse_search_param(params) do
-    case Map.fetch(params, "search") do
-      {:ok, value} ->
-        parse_search_value(value)
-
-      :error ->
-        species_id_to_search(params["species_id"]) || @default_search
-    end
-  end
-
-  defp parse_search_value(nil), do: nil
-  defp parse_search_value(""), do: nil
-
-  defp parse_search_value(value) when is_binary(value) do
-    terms =
-      value
-      |> String.split(",")
-      |> Enum.map(&String.trim/1)
-      |> Enum.reject(&(&1 == ""))
-
-    case terms do
-      [] -> nil
-      list -> list
-    end
-  end
-
-  defp parse_search_value(_), do: nil
-
-  defp species_id_to_search(nil), do: nil
-  defp species_id_to_search(""), do: nil
-
-  defp species_id_to_search(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {id, ""} ->
-        case Species.get_species(id) do
-          %{name: name} when is_binary(name) -> [name]
-          _ -> nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp parse_generation(value) when value in ["sexgen", "agamic", "all"],
-    do: String.to_existing_atom(value)
-
-  defp parse_generation(_), do: :all
-
-  defp parse_phenophases_param(params) do
-    case Map.fetch(params, "phen") do
-      :error -> @default_phenophases
-      {:ok, nil} -> @default_phenophases
-      {:ok, value} -> parse_phenophases_value(value)
-    end
-  end
-
-  # Form-event variant: nil means "no checkboxes checked" — the browser
-  # omits unchecked groups entirely. Distinguishing this from URL-absent
-  # is what gives the strict-empty semantics.
-  defp parse_phenophases_form(nil), do: []
-  defp parse_phenophases_form(value), do: parse_phenophases_value(value)
-
-  defp parse_phenophases_value(""), do: []
-
-  defp parse_phenophases_value(value) when is_list(value) do
-    Enum.filter(value, &(&1 in @explorer_phenophases))
-  end
-
-  defp parse_phenophases_value(value) when is_binary(value) do
-    value
-    |> String.split(",")
-    |> Enum.map(&String.trim/1)
-    |> Enum.filter(&(&1 in @explorer_phenophases))
-  end
-
-  defp parse_phenophases_value(_), do: []
-
-  # Build a query-param keyword list reflecting the current filters.
-  # Emits explicit `search=` / `phen=` (empty value) when the user has
-  # cleared a filter that has a non-empty default, so reload preserves
-  # the cleared state instead of restoring the default.
-  defp filters_to_query(filters) do
-    []
-    |> maybe_put_search(filters[:search])
-    |> maybe_put_gen(filters[:generation])
-    |> maybe_put_phen(filters[:phenophases])
-    |> maybe_put_display(filters[:display_mode])
-    |> maybe_put_lat(filters[:target_lat])
-  end
-
-  defp maybe_put_lat(query, lat) when is_number(lat) do
-    if lat == @default_target_lat, do: query, else: query ++ [lat: to_string(lat)]
-  end
-
-  defp maybe_put_lat(query, _), do: query
-
-  defp maybe_put_display(query, :predictions), do: query
-  defp maybe_put_display(query, :data_table), do: query ++ [display: "table"]
-  defp maybe_put_display(query, :species_list), do: query ++ [display: "species"]
-  defp maybe_put_display(query, _), do: query
-
-  defp maybe_put_search(query, terms) when is_list(terms) and terms != [] do
-    if terms == @default_search,
-      do: query,
-      else: query ++ [search: Enum.join(terms, ",")]
-  end
-
-  defp maybe_put_search(query, _empty_or_nil),
-    do: query ++ [search: ""]
-
-  defp maybe_put_gen(query, :all), do: query
-
-  defp maybe_put_gen(query, gen) when gen in [:sexgen, :agamic],
-    do: query ++ [gen: Atom.to_string(gen)]
-
-  defp maybe_put_gen(query, _), do: query
-
-  defp maybe_put_phen(query, phens) when is_list(phens) and phens != [] do
-    if phens == @default_phenophases,
-      do: query,
-      else: query ++ [phen: Enum.join(phens, ",")]
-  end
-
-  defp maybe_put_phen(query, _empty_or_nil),
-    do: query ++ [phen: ""]
 
   # ----------------------------------------------------------------------
   # Data loading
@@ -341,7 +110,7 @@ defmodule GallformersWeb.PhenologyLive do
   end
 
   defp compute_predictions(socket) do
-    target_lat = socket.assigns.filters[:target_lat] || @default_target_lat
+    target_lat = socket.assigns.filters[:target_lat] || PhenologyFilters.default_target_lat()
 
     predictions =
       socket.assigns.observations
@@ -417,19 +186,8 @@ defmodule GallformersWeb.PhenologyLive do
   # plus an optional brush selection. The controller honors the brush
   # bounds when present so the CSV matches what's on screen.
   defp export_path(filters, selection) do
-    query = filters_to_query(filters) ++ selection_query(selection)
+    query = PhenologyFilters.to_query(filters) ++ PhenologyFilters.brush_query(selection)
     ~p"/phenology/export.csv?#{query}"
-  end
-
-  defp selection_query(nil), do: []
-
-  defp selection_query(%{doy_min: dmin, doy_max: dmax, lat_min: lmin, lat_max: lmax}) do
-    [
-      doy_min: to_string(dmin),
-      doy_max: to_string(dmax),
-      lat_min: to_string(lmin),
-      lat_max: to_string(lmax)
-    ]
   end
 
   # ----------------------------------------------------------------------
@@ -688,7 +446,7 @@ defmodule GallformersWeb.PhenologyLive do
     do: :erlang.float_to_binary(abs(lat), [:compact, decimals: 1])
 
   defp format_target_lat(lat) when is_number(lat), do: to_string(abs(lat))
-  defp format_target_lat(_), do: to_string(@default_target_lat)
+  defp format_target_lat(_), do: to_string(PhenologyFilters.default_target_lat())
 
   defp lat_hemisphere(lat) when is_number(lat) and lat < 0, do: "S"
   defp lat_hemisphere(_), do: "N"

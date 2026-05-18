@@ -33,6 +33,7 @@ defmodule GallformersWeb.PhenologyLive do
         explorer_phenophases: PhenologyFilters.explorer_phenophases(),
         filters: filters,
         observations: [],
+        chart_points_json: "[]",
         selected_observations: [],
         predictions: [],
         selection: nil
@@ -46,17 +47,21 @@ defmodule GallformersWeb.PhenologyLive do
 
   @impl true
   def handle_event("update_filters", params, socket) do
-    filters = PhenologyFilters.from_form_params(params)
+    new_filters = PhenologyFilters.from_form_params(params)
+    prior_filters = socket.assigns.filters
+    obs_changed? = query_affecting_filters_changed?(new_filters, prior_filters)
 
-    {:noreply,
-     socket
-     # Filter changes wipe any active brush — selection from a previous
-     # obs set isn't meaningful against a fresh one.
-     |> assign(filters: filters, selection: nil)
-     |> load_observations()
-     |> apply_selection()
-     |> compute_predictions()
-     |> push_patch(to: ~p"/phenology?#{PhenologyFilters.to_query(filters)}", replace: true)}
+    socket =
+      socket
+      |> assign(filters: new_filters)
+      |> maybe_reload_obs(obs_changed?)
+      |> compute_predictions()
+      |> push_patch(
+        to: ~p"/phenology?#{PhenologyFilters.to_query(new_filters)}",
+        replace: true
+      )
+
+    {:noreply, socket}
   end
 
   # Brush events from the D3 hook. Bounds are in data domain (DOY for x,
@@ -77,6 +82,27 @@ defmodule GallformersWeb.PhenologyLive do
      |> apply_selection()}
   end
 
+  # Only `search` / `generation` / `phenophases` affect the DB query and
+  # therefore the on-screen obs set. Changing `display_mode` or `target_lat`
+  # leaves the obs set untouched — we skip the DB roundtrip AND keep the
+  # brush selection alive (selection from a still-current obs set is still
+  # meaningful).
+  defp query_affecting_filters_changed?(a, b) do
+    a[:search] != b[:search] or
+      a[:generation] != b[:generation] or
+      a[:phenophases] != b[:phenophases]
+  end
+
+  defp maybe_reload_obs(socket, false), do: socket
+
+  defp maybe_reload_obs(socket, true) do
+    socket
+    # New obs set → any prior brush selection is no longer meaningful.
+    |> assign(selection: nil)
+    |> load_observations()
+    |> apply_selection()
+  end
+
   @impl true
   def handle_params(_params, _url, socket), do: {:noreply, socket}
 
@@ -86,7 +112,13 @@ defmodule GallformersWeb.PhenologyLive do
 
   defp load_observations(socket) do
     observations = Phenology.search_observations(socket.assigns.filters)
-    assign(socket, observations: observations)
+
+    # Pre-encode chart points so the template doesn't re-Jason.encode
+    # potentially thousands of obs on every unrelated re-render (display
+    # mode toggle, target_lat tweak, brush event, etc).
+    chart_points_json = observations |> chart_points() |> Jason.encode!()
+
+    assign(socket, observations: observations, chart_points_json: chart_points_json)
   end
 
   # Compute the "selected" subset = obs ∩ brush bounds. The chart always
@@ -349,7 +381,8 @@ defmodule GallformersWeb.PhenologyLive do
           id="phenology-chart"
           phx-hook="PhenologyChart"
           phx-update="ignore"
-          data-points={Jason.encode!(chart_points(@observations))}
+          data-points={@chart_points_json}
+          data-brush={brush_data_attr(@selection)}
           style="height: 540px; border: 1px solid #ddd; background: #fff;
                  border-radius: 4px; position: relative;"
         >
@@ -447,6 +480,12 @@ defmodule GallformersWeb.PhenologyLive do
 
   defp format_target_lat(lat) when is_number(lat), do: to_string(abs(lat))
   defp format_target_lat(_), do: to_string(PhenologyFilters.default_target_lat())
+
+  # Encode the current brush selection for the chart hook to restore after
+  # a re-render. `""` (rather than nil) so the data attribute is always
+  # present and the hook can simply check for empty.
+  defp brush_data_attr(nil), do: ""
+  defp brush_data_attr(selection) when is_map(selection), do: Jason.encode!(selection)
 
   defp lat_hemisphere(lat) when is_number(lat) and lat < 0, do: "S"
   defp lat_hemisphere(_), do: "N"

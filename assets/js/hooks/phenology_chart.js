@@ -97,9 +97,14 @@ export default {
     // on mouseup; we translate the pixel selection back to data domain
     // and push it to the LiveView.
     const hook = this
+    // We programmatically move the brush below (to restore on re-render),
+    // which would re-fire `end` with the same bounds and bounce another
+    // set_selection event back at the LV. Flag suppresses that loop.
+    let restoringBrush = false
     const chartBrush = brush()
       .extent([[0, 0], [width, height]])
       .on('end', ({ selection }) => {
+        if (restoringBrush) return
         if (!selection) {
           hook.pushEvent('clear_selection', {})
           return
@@ -115,9 +120,33 @@ export default {
         })
       })
 
-    svg.append('g')
+    const brushG = svg.append('g')
       .attr('class', 'brush')
       .call(chartBrush)
+
+    // Restore the brush rectangle from the LV-passed selection state.
+    // Without this, every LV re-render (toggling display mode, tweaking
+    // target_lat, etc) wipes the visual selection even though the LV
+    // still considers the brush active.
+    const brushRaw = this.el.dataset.brush
+    if (brushRaw) {
+      try {
+        const sel = JSON.parse(brushRaw)
+        if (sel && sel.doy_min != null) {
+          restoringBrush = true
+          brushG.call(
+            chartBrush.move,
+            [
+              [x(sel.doy_min), y(sel.lat_max)],
+              [x(sel.doy_max), y(sel.lat_min)],
+            ]
+          )
+          restoringBrush = false
+        }
+      } catch (e) {
+        // Malformed data-brush attr — ignore, treat as no brush.
+      }
+    }
 
     // Points — drawn on top of the brush overlay. Each path captures its
     // own mouseover; the brush still works for empty-area drag-selection.

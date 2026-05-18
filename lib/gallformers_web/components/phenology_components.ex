@@ -16,17 +16,26 @@ defmodule GallformersWeb.PhenologyComponents do
   # to be meaningfully predictive.
   @min_obs_for_window 8
 
+  # Tolerance around the observed-latitude range when deciding whether to
+  # honor a viewer-entered lat. Mild extrapolation (a few degrees) is fine;
+  # at larger gaps the seasind back-projection becomes guesswork. Tuned by
+  # feel — adjust here if the gate feels too chatty / too permissive.
+  @lat_range_buffer_deg 5.0
+
   attr :species_id, :integer, required: true
+
   attr :observations, :list,
     required: true,
     doc: "List of plain maps from PhenologyComponents.to_summary_map/1"
 
   attr :target_lat, :any,
     default: nil,
-    doc: "Optional latitude (number or numeric string); switches windows to seasind-based predictions back-projected to that lat"
+    doc:
+      "Optional latitude (number or numeric string); switches windows to seasind-based predictions back-projected to that lat"
 
   def phenology_summary(assigns) do
     target_lat = parse_lat(assigns.target_lat)
+    {windows, gate_message} = build_windows(assigns.observations, target_lat)
 
     assigns =
       assigns
@@ -34,7 +43,8 @@ defmodule GallformersWeb.PhenologyComponents do
       |> assign(:source_breakdown, source_breakdown(assigns.observations))
       |> assign(:target_lat_parsed, target_lat)
       |> assign(:target_lat_input, format_lat_input(assigns.target_lat))
-      |> assign(:windows, build_windows(assigns.observations, target_lat))
+      |> assign(:windows, windows)
+      |> assign(:gate_message, gate_message)
       |> assign(:min_obs_for_window, @min_obs_for_window)
 
     ~H"""
@@ -81,19 +91,28 @@ defmodule GallformersWeb.PhenologyComponents do
           class="w-20 px-2 py-0.5 border border-gray-300 rounded text-right"
         />
         <span class="text-xs text-gray-500">
-          °N (blank&nbsp;= averaged across all obs)
+          ° (positive&nbsp;= N, negative&nbsp;= S; blank&nbsp;= averaged across all obs)
         </span>
       </form>
 
       <div :if={@windows != []} class="mt-2 space-y-0.5 text-sm">
         <div :for={w <- @windows} class="text-gray-700">
-          <span class="font-medium">{w.phenophase}</span>:
-          {w.start_label} – {w.end_label}
+          <span class="font-medium">{w.phenophase}</span>: {w.start_label} – {w.end_label}
           <span class="text-xs text-gray-500">{w.qualifier}</span>
         </div>
       </div>
 
-      <p :if={@n_total > 0 and @windows == []} class="mt-1 text-xs text-gray-500 italic">
+      <p
+        :if={@gate_message != nil}
+        class="mt-1 text-xs text-gray-500 italic"
+      >
+        {@gate_message}
+      </p>
+
+      <p
+        :if={@n_total > 0 and @windows == [] and @gate_message == nil}
+        class="mt-1 text-xs text-gray-500 italic"
+      >
         Not enough samples per phenophase yet to predict active windows
         (need ≥ {@min_obs_for_window} each).
       </p>
@@ -127,9 +146,14 @@ defmodule GallformersWeb.PhenologyComponents do
     |> Enum.map_join(", ", fn {t, n} -> "#{n} #{t}" end)
   end
 
-  # Dispatches: with a parsed target_lat, predicts via seasind back-projection;
-  # without one, falls back to plain DOY-IQR across all observations.
-  defp build_windows(observations, nil), do: phenophase_windows_doy(observations)
+  # Dispatches: with a parsed target_lat, predicts via seasind back-projection
+  # (gated on viewer-lat-in-observed-range and the viewer's hemisphere having
+  # data); without one, falls back to plain DOY-IQR across all observations.
+  #
+  # Returns `{windows, gate_message}` where `gate_message` is nil unless the
+  # lat-gated path refused to predict, in which case `windows == []` and the
+  # message explains why.
+  defp build_windows(observations, nil), do: {phenophase_windows_doy(observations), nil}
   defp build_windows(observations, lat), do: phenophase_windows_at_lat(observations, lat)
 
   # DOY-IQR fallback: ignores latitude entirely. Returns the same shape as
@@ -156,10 +180,34 @@ defmodule GallformersWeb.PhenologyComponents do
     |> Enum.map(&Map.delete(&1, :start_doy))
   end
 
-  # Lat-adjusted: takes the IQR of *seasind* across all observations of each
-  # phenophase, then back-projects to DOY at the target latitude. Skips
-  # observations missing seasind (legacy rows we couldn't compute).
+  # Lat-adjusted: filter obs to the viewer's hemisphere, refuse if that
+  # leaves zero obs or if the viewer's lat is outside the hemisphere's
+  # observed-lat range (with a small buffer). Otherwise compute a seasind
+  # IQR per phenophase from the hemisphere-filtered obs and back-project
+  # to DOY at the target latitude. Hemisphere bucketing is structurally
+  # important: pooling NH and SH observations would average across the
+  # ~6-month phase flip — see GH issue #1.
   defp phenophase_windows_at_lat(observations, target_lat) do
+    same_hem = Enum.filter(observations, &same_hemisphere?(&1, target_lat))
+
+    case observed_lat_range(same_hem) do
+      :empty ->
+        {[], "No observations in your hemisphere for this species yet."}
+
+      {lo, hi} ->
+        if target_lat < lo - @lat_range_buffer_deg or target_lat > hi + @lat_range_buffer_deg do
+          {[],
+           "No observations near this latitude — observed range for this species is " <>
+             "#{format_lat_label(lo)} to #{format_lat_label(hi)}."}
+        else
+          {windows_from_seasind(same_hem, target_lat), nil}
+        end
+    end
+  end
+
+  # Builds the actual per-phenophase windows from a pre-filtered observation
+  # set. Skips obs missing seasind (legacy rows we couldn't compute).
+  defp windows_from_seasind(observations, target_lat) do
     observations
     |> Enum.reject(&(is_nil(&1.phenophase) or &1.phenophase == "" or is_nil(&1.seasind)))
     |> Enum.group_by(& &1.phenophase)
@@ -177,11 +225,37 @@ defmodule GallformersWeb.PhenologyComponents do
         end_label: doy_label(q3_doy),
         start_doy: q1_doy,
         n: length(group),
-        qualifier: "(at #{format_lat(target_lat)}°N, from seasind IQR of n=#{length(group)})"
+        qualifier: "(at #{format_lat_label(target_lat)}, from seasind IQR of n=#{length(group)})"
       }
     end)
     |> Enum.sort_by(& &1.start_doy)
     |> Enum.map(&Map.delete(&1, :start_doy))
+  end
+
+  # Hemisphere classification: treat lat == 0 as NH so the classification
+  # is total and zero falls on the same side as the bulk of our current
+  # data. Obs with nil latitude are excluded (we can't place them on
+  # either side).
+  defp same_hemisphere?(%{latitude: nil}, _target_lat), do: false
+
+  defp same_hemisphere?(%{latitude: obs_lat}, target_lat),
+    do: hemisphere(obs_lat) == hemisphere(target_lat)
+
+  defp hemisphere(lat) when lat < 0, do: :south
+  defp hemisphere(_), do: :north
+
+  # Min/max latitude across the given obs, ignoring nil latitudes. Returns
+  # `:empty` if there are no usable obs.
+  defp observed_lat_range(observations) do
+    lats =
+      observations
+      |> Enum.map(& &1.latitude)
+      |> Enum.reject(&is_nil/1)
+
+    case lats do
+      [] -> :empty
+      _ -> {Enum.min(lats), Enum.max(lats)}
+    end
   end
 
   # Simple "nearest rank" percentile — good enough for an inobtrusive
@@ -237,4 +311,12 @@ defmodule GallformersWeb.PhenologyComponents do
 
   defp format_lat(f) when is_float(f), do: :erlang.float_to_binary(f, [:compact, decimals: 2])
   defp format_lat(f), do: to_string(f)
+
+  # Display latitude as "42.5°N" / "37.8°S" using sign. Zero is rendered as
+  # "0°N" to match the hemisphere classification.
+  defp format_lat_label(lat) when is_number(lat) and lat < 0,
+    do: "#{format_lat(-lat * 1.0)}°S"
+
+  defp format_lat_label(lat) when is_number(lat),
+    do: "#{format_lat(lat * 1.0)}°N"
 end

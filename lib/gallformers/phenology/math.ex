@@ -14,6 +14,24 @@ defmodule Gallformers.Phenology.Math do
   Used by the phenology widget on each gall page to translate a per-species
   seasind IQR (computed from the species' actual observations across many
   latitudes) into a calendar-date IQR at the viewer's chosen latitude.
+
+  ## Known limitation: Southern Hemisphere calibration
+
+  The `eq/2` daylight formula contains a NH-calibrated correction term
+  (`-(0.1 * lat + 5)`) inherited from the original R `eq()`. At negative
+  latitudes that term has not been validated against real observations
+  because all 28,463 currently imported observations are from the Northern
+  Hemisphere. The `pos/1` clamp keeps results numerically sane, but
+  predictions at SH latitudes should not be trusted as physically calibrated.
+
+  Separately, the cumulative-daylight integral runs DOY 1→365 by construction,
+  which makes pooling NH and SH observations of the same species into a
+  single seasind IQR meaningless (it would average across the ~6-month
+  phase flip). The widget hemisphere-buckets observations before computing
+  the IQR for exactly this reason.
+
+  Tracked in [issue #1](https://github.com/Megachile/gallformers/issues/1).
+  Revisit when the first non-trivial SH observation batch lands.
   """
 
   @doc """

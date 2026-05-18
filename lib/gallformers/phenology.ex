@@ -159,8 +159,12 @@ defmodule Gallformers.Phenology do
 
   defp apply_generation_filter(query, _), do: query
 
+  # `nil` means "no filter / key not provided" — kept for non-LV callers that
+  # don't pass a `:phenophases` key. `[]` means "filter to nothing" — the
+  # explorer uses this to honor an all-unchecked UI state strictly. The two
+  # are intentionally distinguished.
   defp apply_phenophase_filter(query, nil), do: query
-  defp apply_phenophase_filter(query, []), do: query
+  defp apply_phenophase_filter(query, []), do: from(o in query, where: false)
 
   defp apply_phenophase_filter(query, phenophases) when is_list(phenophases) do
     from(o in query, where: o.phenophase in ^phenophases)

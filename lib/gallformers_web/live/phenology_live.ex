@@ -12,10 +12,21 @@ defmodule GallformersWeb.PhenologyLive do
   use GallformersWeb, :live_view
 
   alias Gallformers.Phenology
-  alias Gallformers.Phenology.Observation
   alias Gallformers.Species
 
-  @phenophases Observation.phenophases()
+  # Phenophases offered in the explorer UI, in display order. NOT the same
+  # as `Observation.phenophases()` — `senescent` is intentionally omitted
+  # (uninteresting for the prediction use case Adam built the tool around).
+  # New phenophases land in the DB regardless; this is a UX-only list.
+  @explorer_phenophases ~w(oviscar developing dormant maturing Free-living perimature)
+
+  # Pre-populated default filters on first visit (no URL params). Defaults
+  # to one well-observed species + a useful phenophase subset so the page
+  # loads quickly and is interesting out of the box. Each filter has
+  # independent override semantics — see parse_*_param below.
+  @default_search ["Dryocosmus quercuspalustris"]
+  @default_phenophases ~w(maturing perimature Free-living)
+
   @generations [:all, :sexgen, :agamic]
 
   @impl true
@@ -31,7 +42,7 @@ defmodule GallformersWeb.PhenologyLive do
         page_url: "/phenology",
         page_image: nil,
         page_json_ld: nil,
-        all_phenophases: @phenophases,
+        explorer_phenophases: @explorer_phenophases,
         filters: filters,
         observations: []
       )
@@ -58,29 +69,47 @@ defmodule GallformersWeb.PhenologyLive do
   # Filter parsing
   # ----------------------------------------------------------------------
 
-  # Parse filters from URL params on mount. Supports back-compat with the
-  # legacy `?species_id=N` pattern (used by the per-gall widget's "View
-  # chart →" link) by translating it into a single search term.
+  # Parse filters from URL params on mount.
+  #
+  # URL semantics (key absent → use default; key present-but-empty → that
+  # filter cleared explicitly):
+  # - `search` absent → default search; `search=` → no search filter (all species)
+  # - `phen` absent → default phenophases; `phen=` → empty (no obs match)
+  # - `gen` absent → :all; `gen=sexgen|agamic` → restrict; anything else → :all
+  # - `species_id=N` (legacy from the per-gall widget link) translates to a
+  #   single search term and overrides `search` only when no `search` is given.
   defp filters_from_params(params) do
     %{
-      search: parse_search(params["search"]) || species_id_to_search(params["species_id"]),
+      search: parse_search_param(params),
       generation: parse_generation(params["gen"]),
-      phenophases: parse_phenophases(params["phen"])
+      phenophases: parse_phenophases_param(params)
     }
   end
 
-  defp filters_from_form(form_params, prior) do
+  # Form semantics: every change event sends the full form state. Absent
+  # key means "user cleared it" (e.g. all checkboxes off), not "use default."
+  defp filters_from_form(form_params, _prior) do
     %{
-      search: parse_search(form_params["search"]) || prior.search,
+      search: parse_search_value(form_params["search"]),
       generation: parse_generation(form_params["generation"]),
-      phenophases: parse_phenophases(form_params["phenophases"])
+      phenophases: parse_phenophases_form(form_params["phenophases"])
     }
   end
 
-  defp parse_search(nil), do: nil
-  defp parse_search(""), do: nil
+  defp parse_search_param(params) do
+    case Map.fetch(params, "search") do
+      {:ok, value} ->
+        parse_search_value(value)
 
-  defp parse_search(value) when is_binary(value) do
+      :error ->
+        species_id_to_search(params["species_id"]) || @default_search
+    end
+  end
+
+  defp parse_search_value(nil), do: nil
+  defp parse_search_value(""), do: nil
+
+  defp parse_search_value(value) when is_binary(value) do
     terms =
       value
       |> String.split(",")
@@ -93,7 +122,7 @@ defmodule GallformersWeb.PhenologyLive do
     end
   end
 
-  defp parse_search(_), do: nil
+  defp parse_search_value(_), do: nil
 
   defp species_id_to_search(nil), do: nil
   defp species_id_to_search(""), do: nil
@@ -116,22 +145,39 @@ defmodule GallformersWeb.PhenologyLive do
 
   defp parse_generation(_), do: :all
 
-  defp parse_phenophases(nil), do: []
-  defp parse_phenophases(""), do: []
-
-  defp parse_phenophases(value) when is_list(value) do
-    Enum.filter(value, &(&1 in @phenophases))
+  defp parse_phenophases_param(params) do
+    case Map.fetch(params, "phen") do
+      :error -> @default_phenophases
+      {:ok, nil} -> @default_phenophases
+      {:ok, value} -> parse_phenophases_value(value)
+    end
   end
 
-  defp parse_phenophases(value) when is_binary(value) do
+  # Form-event variant: nil means "no checkboxes checked" — the browser
+  # omits unchecked groups entirely. Distinguishing this from URL-absent
+  # is what gives the strict-empty semantics.
+  defp parse_phenophases_form(nil), do: []
+  defp parse_phenophases_form(value), do: parse_phenophases_value(value)
+
+  defp parse_phenophases_value(""), do: []
+
+  defp parse_phenophases_value(value) when is_list(value) do
+    Enum.filter(value, &(&1 in @explorer_phenophases))
+  end
+
+  defp parse_phenophases_value(value) when is_binary(value) do
     value
     |> String.split(",")
     |> Enum.map(&String.trim/1)
-    |> Enum.filter(&(&1 in @phenophases))
+    |> Enum.filter(&(&1 in @explorer_phenophases))
   end
 
-  # Build a query-param keyword list reflecting the current filters. Skips
-  # default / empty values so a clean default state produces a clean URL.
+  defp parse_phenophases_value(_), do: []
+
+  # Build a query-param keyword list reflecting the current filters.
+  # Emits explicit `search=` / `phen=` (empty value) when the user has
+  # cleared a filter that has a non-empty default, so reload preserves
+  # the cleared state instead of restoring the default.
   defp filters_to_query(filters) do
     []
     |> maybe_put_search(filters[:search])
@@ -139,11 +185,14 @@ defmodule GallformersWeb.PhenologyLive do
     |> maybe_put_phen(filters[:phenophases])
   end
 
-  defp maybe_put_search(query, nil), do: query
-  defp maybe_put_search(query, []), do: query
+  defp maybe_put_search(query, terms) when is_list(terms) and terms != [] do
+    if terms == @default_search,
+      do: query,
+      else: query ++ [search: Enum.join(terms, ",")]
+  end
 
-  defp maybe_put_search(query, terms) when is_list(terms),
-    do: query ++ [search: Enum.join(terms, ",")]
+  defp maybe_put_search(query, _empty_or_nil),
+    do: query ++ [search: ""]
 
   defp maybe_put_gen(query, :all), do: query
 
@@ -152,11 +201,14 @@ defmodule GallformersWeb.PhenologyLive do
 
   defp maybe_put_gen(query, _), do: query
 
-  defp maybe_put_phen(query, nil), do: query
-  defp maybe_put_phen(query, []), do: query
+  defp maybe_put_phen(query, phens) when is_list(phens) and phens != [] do
+    if phens == @default_phenophases,
+      do: query,
+      else: query ++ [phen: Enum.join(phens, ",")]
+  end
 
-  defp maybe_put_phen(query, phens) when is_list(phens),
-    do: query ++ [phen: Enum.join(phens, ",")]
+  defp maybe_put_phen(query, _empty_or_nil),
+    do: query ++ [phen: ""]
 
   # ----------------------------------------------------------------------
   # Data loading
@@ -273,7 +325,7 @@ defmodule GallformersWeb.PhenologyLive do
           <fieldset style="border: none; padding: 0; margin: 0; flex: 1; min-width: 280px;">
             <legend style="font-weight: 600; padding: 0; margin-bottom: 4px;">Phenophase</legend>
             <div style="display: flex; flex-wrap: wrap; gap: 4px 12px;">
-              <%= for p <- @all_phenophases do %>
+              <%= for p <- @explorer_phenophases do %>
                 <label style="font-size: 13px;">
                   <input
                     type="checkbox"
@@ -285,7 +337,7 @@ defmodule GallformersWeb.PhenologyLive do
               <% end %>
             </div>
             <span style="display: block; color: #666; font-size: 11px; margin-top: 2px;">
-              No selection = no phenophase filter (all phenophases included).
+              Uncheck all to clear filter (no observations will be displayed).
             </span>
           </fieldset>
         </div>

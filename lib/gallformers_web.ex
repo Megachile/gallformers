@@ -34,7 +34,6 @@ defmodule GallformersWeb do
       Gallformers.Images.Image,
       Gallformers.Keys.Key,
       Gallformers.Phenology.Math,
-      Gallformers.Phenology.Observation,
       Gallformers.Storage.Images,
       Gallformers.Sources.Source,
       Gallformers.Species.Species,

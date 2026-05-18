@@ -261,6 +261,49 @@ defmodule GallformersWeb.PhenologyLiveTest do
       refute html =~ "Acraspis b"
     end
 
+    test "?display=table renders the obs data table", %{conn: conn} do
+      sp = insert_gall("Acraspis erinacei (agamic)")
+      insert_obs(sp.id, %{phenophase: "maturing", site: "Ann Arbor", state: "MI"})
+
+      {:ok, _view, html} = live(conn, ~p"/phenology?search=&display=table")
+
+      assert html =~ ~s(id="phenology-obs-table")
+      assert html =~ "Acraspis erinacei"
+      assert html =~ "Lifestage"
+      assert html =~ "Viability"
+      assert html =~ "DOY"
+      # Download link present for table view
+      assert html =~ "Download CSV"
+      assert html =~ "/phenology/export.csv"
+    end
+
+    test "?display=species renders the species list table", %{conn: conn} do
+      sp1 = insert_gall("Acraspis a (agamic)")
+      sp2 = insert_gall("Aulacidea b (sexgen)")
+      insert_obs(sp1.id, %{phenophase: "maturing"})
+      insert_obs(sp1.id, %{phenophase: "maturing", date: ~D[2024-07-01], doy: 183})
+      insert_obs(sp2.id, %{phenophase: "maturing"})
+
+      {:ok, _view, html} = live(conn, ~p"/phenology?search=&display=species")
+
+      assert html =~ ~s(id="phenology-species-table")
+      assert html =~ "Acraspis a"
+      assert html =~ "Aulacidea b"
+      # Two obs for Acraspis a → "2" should appear in the n_obs column.
+      assert html =~ "Acraspis a"
+      assert html =~ "Download CSV"
+    end
+
+    test "?display=chart (default) does not show the CSV download link", %{conn: conn} do
+      sp = insert_gall("Acraspis erinacei (agamic)")
+      insert_obs(sp.id, %{phenophase: "maturing"})
+
+      {:ok, _view, html} = live(conn, ~p"/phenology?search=")
+
+      assert html =~ ~s(id="phenology-chart")
+      refute html =~ "Download CSV"
+    end
+
     test "?species_id= back-compat seeds search from the species name", %{conn: conn} do
       sp = insert_gall("Specific testica (agamic)")
       other = insert_gall("Other species (agamic)")

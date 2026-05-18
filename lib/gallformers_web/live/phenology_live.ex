@@ -82,7 +82,8 @@ defmodule GallformersWeb.PhenologyLive do
     %{
       search: parse_search_param(params),
       generation: parse_generation(params["gen"]),
-      phenophases: parse_phenophases_param(params)
+      phenophases: parse_phenophases_param(params),
+      display_mode: parse_display_mode(params["display"])
     }
   end
 
@@ -92,9 +93,14 @@ defmodule GallformersWeb.PhenologyLive do
     %{
       search: parse_search_value(form_params["search"]),
       generation: parse_generation(form_params["generation"]),
-      phenophases: parse_phenophases_form(form_params["phenophases"])
+      phenophases: parse_phenophases_form(form_params["phenophases"]),
+      display_mode: parse_display_mode(form_params["display"])
     }
   end
+
+  defp parse_display_mode("table"), do: :data_table
+  defp parse_display_mode("species"), do: :species_list
+  defp parse_display_mode(_), do: :chart
 
   defp parse_search_param(params) do
     case Map.fetch(params, "search") do
@@ -183,7 +189,13 @@ defmodule GallformersWeb.PhenologyLive do
     |> maybe_put_search(filters[:search])
     |> maybe_put_gen(filters[:generation])
     |> maybe_put_phen(filters[:phenophases])
+    |> maybe_put_display(filters[:display_mode])
   end
+
+  defp maybe_put_display(query, :chart), do: query
+  defp maybe_put_display(query, :data_table), do: query ++ [display: "table"]
+  defp maybe_put_display(query, :species_list), do: query ++ [display: "species"]
+  defp maybe_put_display(query, _), do: query
 
   defp maybe_put_search(query, terms) when is_list(terms) and terms != [] do
     if terms == @default_search,
@@ -268,6 +280,26 @@ defmodule GallformersWeb.PhenologyLive do
   defp gen_value(%{generation: gen}) when gen in @generations, do: Atom.to_string(gen)
   defp gen_value(_), do: "all"
 
+  defp display_value(%{display_mode: :data_table}), do: "table"
+  defp display_value(%{display_mode: :species_list}), do: "species"
+  defp display_value(_), do: "chart"
+
+  # Collapses the obs list to one row per species with the obs count attached,
+  # ordered by name. Used by the species_list display mode.
+  defp species_rows(observations) do
+    observations
+    |> Enum.group_by(&{&1.species_id, &1.species_name})
+    |> Enum.map(fn {{id, name}, obs} -> %{species_id: id, name: name, n_obs: length(obs)} end)
+    |> Enum.sort_by(& &1.name)
+  end
+
+  # Path for the CSV export endpoint, preserving the current filter state.
+  # The same parser handles ?display= so the export respects whether the
+  # user is on the data-table or species-list view (different shape).
+  defp export_path(filters) do
+    ~p"/phenology/export.csv?#{filters_to_query(filters)}"
+  end
+
   # ----------------------------------------------------------------------
   # Render
   # ----------------------------------------------------------------------
@@ -341,30 +373,95 @@ defmodule GallformersWeb.PhenologyLive do
             </span>
           </fieldset>
         </div>
+
+        <fieldset style="border: none; padding: 0; margin: 0;">
+          <legend style="font-weight: 600; padding: 0; margin-bottom: 4px;">View</legend>
+          <%= for {value, label} <- [{"chart", "Chart"}, {"table", "Data table"}, {"species", "Species list"}] do %>
+            <label style="margin-right: 12px; font-size: 13px;">
+              <input
+                type="radio"
+                name="display"
+                value={value}
+                checked={display_value(@filters) == value}
+              /> {label}
+            </label>
+          <% end %>
+        </fieldset>
       </form>
 
-      <div style="font-size: 13px; color: #444; margin: 8px 0;">
-        {length(@observations)} observation{if length(@observations) != 1, do: "s"} across {species_count(
-          @observations
-        )} species
+      <div style="font-size: 13px; color: #444; margin: 8px 0; display: flex; gap: 12px; align-items: center;">
+        <span>
+          {length(@observations)} observation{if length(@observations) != 1, do: "s"} across {species_count(
+            @observations
+          )} species
+        </span>
+        <.link
+          :if={@filters.display_mode in [:data_table, :species_list] and @observations != []}
+          href={export_path(@filters)}
+          style="font-size: 12px; color: #2b5e3a; text-decoration: underline;"
+        >
+          Download CSV
+        </.link>
       </div>
 
-      <%= if @observations == [] do %>
-        <div style="padding: 40px; text-align: center; color: #888;
-                    border: 1px solid #ddd; background: #fff; border-radius: 4px;">
-          No observations match these filters.
-        </div>
-      <% else %>
-        <div
-          id="phenology-chart"
-          phx-hook="PhenologyChart"
-          phx-update="ignore"
-          data-points={Jason.encode!(chart_points(@observations))}
-          style="height: 540px; border: 1px solid #ddd; background: #fff; border-radius: 4px;"
-        >
-        </div>
+      <%= cond do %>
+        <% @observations == [] -> %>
+          <div style="padding: 40px; text-align: center; color: #888;
+                      border: 1px solid #ddd; background: #fff; border-radius: 4px;">
+            No observations match these filters.
+          </div>
+        <% @filters.display_mode == :data_table -> %>
+          <div style="overflow-x: auto; border: 1px solid #ddd; background: #fff; border-radius: 4px;">
+            <.table id="phenology-obs-table" rows={@observations} variant="compact">
+              <:col :let={o} label="Species">{o.species_name}</:col>
+              <:col :let={o} label="Phenophase">{o.phenophase || "—"}</:col>
+              <:col :let={o} label="Lifestage">{o.lifestage || "—"}</:col>
+              <:col :let={o} label="Viability">{o.viability || "—"}</:col>
+              <:col :let={o} label="Host">{o.host_species_name || "—"}</:col>
+              <:col :let={o} label="DOY">{o.doy}</:col>
+              <:col :let={o} label="Date">{format_obs_date(o.date)}</:col>
+              <:col :let={o} label="Lat">{format_coord(o.latitude)}</:col>
+              <:col :let={o} label="Lng">{format_coord(o.longitude)}</:col>
+              <:col :let={o} label="Source">
+                <%= if o.source_url do %>
+                  <a href={o.source_url} target="_blank" rel="noopener">link</a>
+                <% else %>
+                  —
+                <% end %>
+              </:col>
+              <:col :let={o} label="Page">
+                <%= if o.page_url do %>
+                  <a href={o.page_url} target="_blank" rel="noopener">link</a>
+                <% else %>
+                  —
+                <% end %>
+              </:col>
+            </.table>
+          </div>
+        <% @filters.display_mode == :species_list -> %>
+          <div style="overflow-x: auto; border: 1px solid #ddd; background: #fff; border-radius: 4px;">
+            <.table id="phenology-species-table" rows={species_rows(@observations)} variant="compact">
+              <:col :let={row} label="Species">
+                <.link href={~p"/gall/#{row.species_id}"}>{row.name}</.link>
+              </:col>
+              <:col :let={row} label="Observations">{row.n_obs}</:col>
+            </.table>
+          </div>
+        <% true -> %>
+          <div
+            id="phenology-chart"
+            phx-hook="PhenologyChart"
+            phx-update="ignore"
+            data-points={Jason.encode!(chart_points(@observations))}
+            style="height: 540px; border: 1px solid #ddd; background: #fff; border-radius: 4px;"
+          >
+          </div>
       <% end %>
     </div>
     """
   end
+
+  defp format_coord(c) when is_float(c), do: :erlang.float_to_binary(c, [:compact, decimals: 3])
+  defp format_coord(c) when is_number(c), do: to_string(c)
+  defp format_coord(_), do: ""
 end

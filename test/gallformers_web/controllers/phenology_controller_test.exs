@@ -111,6 +111,25 @@ defmodule GallformersWeb.PhenologyControllerTest do
       refute body =~ "Acraspis a"
     end
 
+    test "brush bounds in URL narrow the exported CSV", %{conn: conn} do
+      sp = insert_gall("Acraspis erinacei (agamic)")
+      insert_obs(sp.id, %{phenophase: "maturing", doy: 120, date: ~D[2024-04-29]})
+      insert_obs(sp.id, %{phenophase: "maturing", doy: 200, date: ~D[2024-07-18]})
+
+      body =
+        conn
+        |> get(
+          ~p"/phenology/export.csv?search=&display=table&doy_min=100&doy_max=150&lat_min=0&lat_max=90"
+        )
+        |> response(200)
+
+      # Two header lines + one data row (DOY 120 in window, DOY 200 out).
+      lines = body |> String.split("\n", trim: true)
+      assert length(lines) == 2
+      assert Enum.at(lines, 1) =~ "120"
+      refute body =~ "200"
+    end
+
     test "default search filter (Dryocosmus) is applied when ?search= is absent",
          %{conn: conn} do
       dryo = insert_gall("Dryocosmus quercuspalustris (agamic)")

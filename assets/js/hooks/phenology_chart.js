@@ -2,6 +2,7 @@ import { select } from 'd3-selection'
 import { scaleLinear } from 'd3-scale'
 import { axisBottom, axisLeft } from 'd3-axis'
 import { extent } from 'd3-array'
+import { brush } from 'd3-brush'
 import { symbol, symbolCircle, symbolTriangle, symbolSquare,
          symbolStar, symbolCross, symbolDiamond, symbolWye } from 'd3-shape'
 
@@ -91,9 +92,35 @@ export default {
       .attr('text-anchor', 'middle').style('font-size', '12px').style('fill', '#666')
       .text('Latitude (°N)')
 
-    // Points — color per-point by generation (multi-species safe; pre-multi-
-    // species the LV passed a single generation via data-generation, but
-    // each point now carries its own).
+    // Brush layer — added BEFORE the points so points stay above and can
+    // receive mouseover events for tooltips. d3-brush emits an "end" event
+    // on mouseup; we translate the pixel selection back to data domain
+    // and push it to the LiveView.
+    const hook = this
+    const chartBrush = brush()
+      .extent([[0, 0], [width, height]])
+      .on('end', ({ selection }) => {
+        if (!selection) {
+          hook.pushEvent('clear_selection', {})
+          return
+        }
+        const [[x0, y0], [x1, y1]] = selection
+        hook.pushEvent('set_selection', {
+          doy_min: Math.floor(x.invert(x0)),
+          doy_max: Math.ceil(x.invert(x1)),
+          // y axis is inverted in screen space — top pixel is highest lat,
+          // so we take the min/max explicitly to stay generation-agnostic.
+          lat_min: Math.min(y.invert(y0), y.invert(y1)),
+          lat_max: Math.max(y.invert(y0), y.invert(y1)),
+        })
+      })
+
+    svg.append('g')
+      .attr('class', 'brush')
+      .call(chartBrush)
+
+    // Points — drawn on top of the brush overlay. Each path captures its
+    // own mouseover; the brush still works for empty-area drag-selection.
     const symbolGen = symbol().size(60)
     svg.selectAll('path.obs')
       .data(points).enter()
@@ -106,6 +133,7 @@ export default {
         .attr('stroke', '#222')
         .attr('stroke-width', 0.4)
         .style('cursor', 'pointer')
+        .style('pointer-events', 'all')
         .on('mouseover', function (event, d) {
           select(this).attr('fill-opacity', 1)
           const speciesLine = d.species_name

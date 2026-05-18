@@ -18,7 +18,11 @@ defmodule GallformersWeb.PhenologyController do
 
   def export(conn, params) do
     filters = parse_filters(params)
-    observations = Phenology.search_observations(filters)
+
+    observations =
+      filters
+      |> Phenology.search_observations()
+      |> apply_brush(parse_brush(params))
 
     {filename, body} = build_csv(filters[:display_mode], observations)
 
@@ -27,6 +31,42 @@ defmodule GallformersWeb.PhenologyController do
     |> put_resp_header("content-disposition", ~s(attachment; filename="#{filename}"))
     |> send_resp(200, body)
   end
+
+  # Brush bounds piggyback as URL params from the LV's Download CSV link.
+  # All four must parse for the brush to apply; partial / missing → no
+  # filter, treated as "no brush active."
+  defp parse_brush(params) do
+    with {:ok, dmin} <- to_number(params["doy_min"]),
+         {:ok, dmax} <- to_number(params["doy_max"]),
+         {:ok, lmin} <- to_number(params["lat_min"]),
+         {:ok, lmax} <- to_number(params["lat_max"]) do
+      %{doy_min: trunc(dmin), doy_max: trunc(dmax), lat_min: lmin, lat_max: lmax}
+    else
+      _ -> nil
+    end
+  end
+
+  defp apply_brush(obs, nil), do: obs
+
+  defp apply_brush(obs, %{doy_min: dmin, doy_max: dmax, lat_min: lmin, lat_max: lmax}) do
+    Enum.filter(obs, fn o ->
+      o.doy >= dmin and o.doy <= dmax and
+        is_number(o.latitude) and o.latitude >= lmin and o.latitude <= lmax
+    end)
+  end
+
+  defp to_number(nil), do: :error
+  defp to_number(""), do: :error
+  defp to_number(n) when is_number(n), do: {:ok, n}
+
+  defp to_number(s) when is_binary(s) do
+    case Float.parse(s) do
+      {f, _} -> {:ok, f}
+      :error -> :error
+    end
+  end
+
+  defp to_number(_), do: :error
 
   # Mirrors the LiveView's URL-param semantics (defaults applied when keys
   # are absent; explicit empties honored). Keeps the LV and CSV in sync so

@@ -294,14 +294,27 @@ defmodule GallformersWeb.PhenologyLiveTest do
       assert html =~ "Download CSV"
     end
 
-    test "?display=chart (default) does not show the CSV download link", %{conn: conn} do
+    test "default panel (predictions) does not show the CSV download link", %{conn: conn} do
       sp = insert_gall("Acraspis erinacei (agamic)")
       insert_obs(sp.id, %{phenophase: "maturing"})
 
       {:ok, _view, html} = live(conn, ~p"/phenology?search=")
 
+      # Chart always renders now, regardless of display mode.
       assert html =~ ~s(id="phenology-chart")
+      # No CSV download in predictions mode (default).
       refute html =~ "Download CSV"
+    end
+
+    test "chart always renders even when display=table", %{conn: conn} do
+      sp = insert_gall("Acraspis erinacei (agamic)")
+      insert_obs(sp.id, %{phenophase: "maturing"})
+
+      {:ok, _view, html} = live(conn, ~p"/phenology?search=&display=table")
+
+      # Chart on top + data table below.
+      assert html =~ ~s(id="phenology-chart")
+      assert html =~ ~s(id="phenology-obs-table")
     end
 
     test "?lat= sets the prediction target latitude", %{conn: conn} do
@@ -338,6 +351,85 @@ defmodule GallformersWeb.PhenologyLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/phenology")
       refute html =~ "Predicted windows at"
+    end
+
+    test "brush selection narrows the lower panel obs", %{conn: conn} do
+      sp = insert_gall("Acraspis erinacei (agamic)")
+      # Two obs at different DOYs — brush window of ~100-150 should keep
+      # the first one and drop the second.
+      insert_obs(sp.id, %{phenophase: "maturing", doy: 120, date: ~D[2024-04-29]})
+      insert_obs(sp.id, %{phenophase: "maturing", doy: 200, date: ~D[2024-07-18]})
+
+      {:ok, view, _html} = live(conn, ~p"/phenology?search=&display=table")
+
+      # No selection initially: both obs in the table.
+      html = render(view)
+      assert html =~ "2 observations"
+
+      # Apply a brush selection that should keep only the DOY 120 obs.
+      html =
+        render_hook(view, "set_selection", %{
+          "doy_min" => "100",
+          "doy_max" => "150",
+          "lat_min" => "0",
+          "lat_max" => "90"
+        })
+
+      assert html =~ "1 in brush selection"
+      assert html =~ "Clear selection"
+      # CSV link now carries the brush bounds (the filter window, not the
+      # specific obs DOY).
+      assert html =~ "doy_min=100"
+      assert html =~ "doy_max=150"
+    end
+
+    test "clear_selection event removes the brush", %{conn: conn} do
+      sp = insert_gall("Acraspis erinacei (agamic)")
+      insert_obs(sp.id, %{phenophase: "maturing", doy: 167})
+
+      {:ok, view, _html} = live(conn, ~p"/phenology?search=&display=table")
+
+      render_hook(view, "set_selection", %{
+        "doy_min" => "100",
+        "doy_max" => "200",
+        "lat_min" => "0",
+        "lat_max" => "90"
+      })
+
+      html = render(view)
+      assert html =~ "in brush selection"
+
+      html = render_hook(view, "clear_selection", %{})
+      refute html =~ "in brush selection"
+      refute html =~ "Clear selection"
+    end
+
+    test "filter changes wipe the brush selection", %{conn: conn} do
+      sp = insert_gall("Acraspis erinacei (agamic)")
+      insert_obs(sp.id, %{phenophase: "maturing", doy: 167})
+
+      {:ok, view, _html} = live(conn, ~p"/phenology?search=&display=table")
+
+      render_hook(view, "set_selection", %{
+        "doy_min" => "100",
+        "doy_max" => "200",
+        "lat_min" => "0",
+        "lat_max" => "90"
+      })
+
+      html = render(view)
+      assert html =~ "in brush selection"
+
+      # Change a filter; selection should be cleared automatically.
+      html =
+        render_change(view, "update_filters", %{
+          "search" => "",
+          "generation" => "all",
+          "phenophases" => ["maturing"],
+          "display" => "table"
+        })
+
+      refute html =~ "in brush selection"
     end
 
     test "?species_id= back-compat seeds search from the species name", %{conn: conn} do

@@ -36,11 +36,27 @@ defmodule GallformersWeb.PhenologyLive do
         chart_points_json: "[]",
         selected_observations: [],
         predictions: [],
-        selection: nil
+        selection: nil,
+        initialized?: false
       )
-      |> load_observations()
-      |> apply_selection()
-      |> compute_predictions()
+
+    # Phoenix LV calls mount/3 twice: once during the dead render that ships
+    # the initial HTML, then again after the live socket connects. Without
+    # a guard the DB query would run both times — and the dead-render HTML
+    # would already include the obs, so we'd block the first-paint TTFB on
+    # a Postgres roundtrip we're about to throw away. Defer to the live
+    # mount; the user sees the page structure instantly and the chart
+    # populates a moment later.
+    socket =
+      if connected?(socket) do
+        socket
+        |> load_observations()
+        |> apply_selection()
+        |> compute_predictions()
+        |> assign(initialized?: true)
+      else
+        socket
+      end
 
     {:ok, socket}
   end
@@ -339,7 +355,10 @@ defmodule GallformersWeb.PhenologyLive do
       </form>
 
       <div style="font-size: 13px; color: #444; margin: 8px 0; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-        <span>
+        <span :if={not @initialized?} style="color: #888; font-style: italic;">
+          Loading observations…
+        </span>
+        <span :if={@initialized?}>
           {length(@observations)} observation{if length(@observations) != 1, do: "s"} across {species_count(
             @observations
           )} species
@@ -371,101 +390,107 @@ defmodule GallformersWeb.PhenologyLive do
         </.link>
       </div>
 
-      <%= if @observations == [] do %>
-        <div style="padding: 40px; text-align: center; color: #888;
-                    border: 1px solid #ddd; background: #fff; border-radius: 4px;">
-          No observations match these filters.
-        </div>
-      <% else %>
-        <div
-          id="phenology-chart"
-          phx-hook="PhenologyChart"
-          phx-update="ignore"
-          data-points={@chart_points_json}
-          data-brush={brush_data_attr(@selection)}
-          style="height: 540px; border: 1px solid #ddd; background: #fff;
+      <%= cond do %>
+        <% not @initialized? -> %>
+          <div style="padding: 40px; text-align: center; color: #888;
+                      border: 1px solid #ddd; background: #fff; border-radius: 4px;">
+            Loading observations…
+          </div>
+        <% @observations == [] -> %>
+          <div style="padding: 40px; text-align: center; color: #888;
+                      border: 1px solid #ddd; background: #fff; border-radius: 4px;">
+            No observations match these filters.
+          </div>
+        <% true -> %>
+          <div
+            id="phenology-chart"
+            phx-hook="PhenologyChart"
+            phx-update="ignore"
+            data-points={@chart_points_json}
+            data-brush={brush_data_attr(@selection)}
+            style="height: 540px; border: 1px solid #ddd; background: #fff;
                  border-radius: 4px; position: relative;"
-        >
-        </div>
-        <p style="margin: 4px 0 0; color: #666; font-size: 11px;">
-          Drag on the chart to brush-select observations into the table /
-          species list below. Click outside the brush to clear.
-        </p>
+          >
+          </div>
+          <p style="margin: 4px 0 0; color: #666; font-size: 11px;">
+            Drag on the chart to brush-select observations into the table /
+            species list below. Click outside the brush to clear.
+          </p>
 
-        <%= cond do %>
-          <% @filters.display_mode == :data_table -> %>
-            <div style="margin-top: 12px; overflow-x: auto; border: 1px solid #ddd; background: #fff; border-radius: 4px;">
-              <.table
-                id="phenology-obs-table"
-                rows={@selected_observations}
-                variant="compact"
-              >
-                <:col :let={o} label="Species">{o.species_name}</:col>
-                <:col :let={o} label="Phenophase">{o.phenophase || "—"}</:col>
-                <:col :let={o} label="Lifestage">{o.lifestage || "—"}</:col>
-                <:col :let={o} label="Viability">{o.viability || "—"}</:col>
-                <:col :let={o} label="Host">{o.host_species_name || "—"}</:col>
-                <:col :let={o} label="DOY">{o.doy}</:col>
-                <:col :let={o} label="Date">{format_obs_date(o.date)}</:col>
-                <:col :let={o} label="Lat">{format_coord(o.latitude)}</:col>
-                <:col :let={o} label="Lng">{format_coord(o.longitude)}</:col>
-                <:col :let={o} label="Source">
-                  <%= if o.source_url do %>
-                    <a href={o.source_url} target="_blank" rel="noopener">link</a>
-                  <% else %>
-                    —
-                  <% end %>
-                </:col>
-                <:col :let={o} label="Page">
-                  <%= if o.page_url do %>
-                    <a href={o.page_url} target="_blank" rel="noopener">link</a>
-                  <% else %>
-                    —
-                  <% end %>
-                </:col>
-              </.table>
-            </div>
-          <% @filters.display_mode == :species_list -> %>
-            <div style="margin-top: 12px; overflow-x: auto; border: 1px solid #ddd; background: #fff; border-radius: 4px;">
-              <.table
-                id="phenology-species-table"
-                rows={species_rows(@selected_observations)}
-                variant="compact"
-              >
-                <:col :let={row} label="Species">
-                  <.link href={~p"/gall/#{row.species_id}"}>{row.name}</.link>
-                </:col>
-                <:col :let={row} label="Observations">{row.n_obs}</:col>
-              </.table>
-            </div>
-          <% true -> %>
-            <%= if @predictions != [] do %>
-              <div
-                id="phenology-predictions"
-                style="margin-top: 12px; padding: 10px 12px; background: #f5f3ec;
-                       border: 1px solid #ddd; border-radius: 4px; font-size: 13px;"
-              >
-                <div style="font-weight: 600; margin-bottom: 6px;">
-                  Predicted windows at {format_target_lat(@filters[:target_lat])}°{lat_hemisphere(
-                    @filters[:target_lat]
-                  )}
-                </div>
-                <ul style="margin: 0; padding-left: 18px;">
-                  <li :for={p <- @predictions} style="margin-bottom: 2px;">
-                    {prediction_sentence(p)}
-                  </li>
-                </ul>
-                <span style="display: block; color: #666; font-size: 11px; margin-top: 4px;">
-                  Based on the seasind IQR of matched observations, back-projected
-                  to your latitude. Predictions are NH-temperate-calibrated — see
-                  <a href="https://github.com/Megachile/gallformers/issues/1">
-                    issue #1
-                  </a>
-                  for the SH validation roadmap.
-                </span>
+          <%= cond do %>
+            <% @filters.display_mode == :data_table -> %>
+              <div style="margin-top: 12px; overflow-x: auto; border: 1px solid #ddd; background: #fff; border-radius: 4px;">
+                <.table
+                  id="phenology-obs-table"
+                  rows={@selected_observations}
+                  variant="compact"
+                >
+                  <:col :let={o} label="Species">{o.species_name}</:col>
+                  <:col :let={o} label="Phenophase">{o.phenophase || "—"}</:col>
+                  <:col :let={o} label="Lifestage">{o.lifestage || "—"}</:col>
+                  <:col :let={o} label="Viability">{o.viability || "—"}</:col>
+                  <:col :let={o} label="Host">{o.host_species_name || "—"}</:col>
+                  <:col :let={o} label="DOY">{o.doy}</:col>
+                  <:col :let={o} label="Date">{format_obs_date(o.date)}</:col>
+                  <:col :let={o} label="Lat">{format_coord(o.latitude)}</:col>
+                  <:col :let={o} label="Lng">{format_coord(o.longitude)}</:col>
+                  <:col :let={o} label="Source">
+                    <%= if o.source_url do %>
+                      <a href={o.source_url} target="_blank" rel="noopener">link</a>
+                    <% else %>
+                      —
+                    <% end %>
+                  </:col>
+                  <:col :let={o} label="Page">
+                    <%= if o.page_url do %>
+                      <a href={o.page_url} target="_blank" rel="noopener">link</a>
+                    <% else %>
+                      —
+                    <% end %>
+                  </:col>
+                </.table>
               </div>
-            <% end %>
-        <% end %>
+            <% @filters.display_mode == :species_list -> %>
+              <div style="margin-top: 12px; overflow-x: auto; border: 1px solid #ddd; background: #fff; border-radius: 4px;">
+                <.table
+                  id="phenology-species-table"
+                  rows={species_rows(@selected_observations)}
+                  variant="compact"
+                >
+                  <:col :let={row} label="Species">
+                    <.link href={~p"/gall/#{row.species_id}"}>{row.name}</.link>
+                  </:col>
+                  <:col :let={row} label="Observations">{row.n_obs}</:col>
+                </.table>
+              </div>
+            <% true -> %>
+              <%= if @predictions != [] do %>
+                <div
+                  id="phenology-predictions"
+                  style="margin-top: 12px; padding: 10px 12px; background: #f5f3ec;
+                       border: 1px solid #ddd; border-radius: 4px; font-size: 13px;"
+                >
+                  <div style="font-weight: 600; margin-bottom: 6px;">
+                    Predicted windows at {format_target_lat(@filters[:target_lat])}°{lat_hemisphere(
+                      @filters[:target_lat]
+                    )}
+                  </div>
+                  <ul style="margin: 0; padding-left: 18px;">
+                    <li :for={p <- @predictions} style="margin-bottom: 2px;">
+                      {prediction_sentence(p)}
+                    </li>
+                  </ul>
+                  <span style="display: block; color: #666; font-size: 11px; margin-top: 4px;">
+                    Based on the seasind IQR of matched observations, back-projected
+                    to your latitude. Predictions are NH-temperate-calibrated — see
+                    <a href="https://github.com/Megachile/gallformers/issues/1">
+                      issue #1
+                    </a>
+                    for the SH validation roadmap.
+                  </span>
+                </div>
+              <% end %>
+          <% end %>
       <% end %>
     </div>
     """

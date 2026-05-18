@@ -38,7 +38,7 @@ defmodule Gallformers.Phenology.Math do
     decl_rad = :math.pi() * declination(doy) / 180
 
     arg =
-      -:math.tan(lat_rad) * :math.tan(decl_rad)
+      (-:math.tan(lat_rad) * :math.tan(decl_rad))
       |> clamp(-1.0, 1.0)
 
     2 * (24 / (2 * :math.pi())) * :math.acos(arg) - (0.1 * lat + 5)
@@ -71,7 +71,7 @@ defmodule Gallformers.Phenology.Math do
   @spec doy_for_seasind(number(), number()) :: integer()
   def doy_for_seasind(target_seasind, _lat) when target_seasind <= 0, do: 1
 
-  def doy_for_seasind(target_seasind, lat) when target_seasind >= 1, do: 365
+  def doy_for_seasind(target_seasind, _lat) when target_seasind >= 1, do: 365
 
   def doy_for_seasind(target_seasind, lat) do
     # Precompute cumulative seasind for each DOY at this latitude, then
@@ -79,28 +79,32 @@ defmodule Gallformers.Phenology.Math do
     # construction is O(365); the search is O(365) too — both negligible
     # for a per-request widget computation.
     denominator = trapz_eq_pos(1, 365, lat)
+
     if denominator == 0.0 do
       1
     else
-      Enum.reduce_while(1..365, {0.0, 0.0, 1}, fn doy, {prev_seasind, prev_h, _} ->
-        h = pos(eq(doy, lat))
-        # Trapezoidal step from doy-1 to doy uses (prev_h + h) / 2 = the
-        # daily contribution. Sum to numerator.
-        step = (prev_h + h) / 2
-        cum = prev_seasind + step / denominator
-
-        if cum >= target_seasind do
-          {:halt, doy}
-        else
-          {:cont, {cum, h, doy}}
-        end
-      end)
-      |> case do
-        doy when is_integer(doy) -> doy
-        _ -> 365
-      end
+      search_doy(target_seasind, lat, denominator)
     end
   end
+
+  defp search_doy(target_seasind, lat, denominator) do
+    1..365
+    |> Enum.reduce_while({0.0, 0.0, 1}, fn doy, {prev_seasind, prev_h, _} ->
+      h = pos(eq(doy, lat))
+      # Trapezoidal step from doy-1 to doy uses (prev_h + h) / 2 = the
+      # daily contribution.
+      step = (prev_h + h) / 2
+      cum = prev_seasind + step / denominator
+      step_decision(cum, h, doy, target_seasind)
+    end)
+    |> case do
+      doy when is_integer(doy) -> doy
+      _ -> 365
+    end
+  end
+
+  defp step_decision(cum, _h, doy, target) when cum >= target, do: {:halt, doy}
+  defp step_decision(cum, h, doy, _target), do: {:cont, {cum, h, doy}}
 
   # ----------------------------------------------------------------------
   # Internals

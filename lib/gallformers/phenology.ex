@@ -39,7 +39,9 @@ defmodule Gallformers.Phenology do
   phenology explorer's species selector and by per-gall data-availability
   widgets.
   """
-  @spec list_species_with_counts() :: [%{species_id: integer(), name: String.t(), n_obs: non_neg_integer()}]
+  @spec list_species_with_counts() :: [
+          %{species_id: integer(), name: String.t(), n_obs: non_neg_integer()}
+        ]
   def list_species_with_counts do
     from(o in Observation,
       join: s in Species,

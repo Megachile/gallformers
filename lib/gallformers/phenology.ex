@@ -120,7 +120,8 @@ defmodule Gallformers.Phenology do
         page_url: o.page_url,
         site: o.site,
         state: o.state,
-        country: o.country
+        country: o.country,
+        seasind: o.seasind
       }
     )
     |> apply_search_filter(Map.get(filters, :search))

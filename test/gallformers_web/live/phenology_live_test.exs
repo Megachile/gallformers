@@ -304,6 +304,42 @@ defmodule GallformersWeb.PhenologyLiveTest do
       refute html =~ "Download CSV"
     end
 
+    test "?lat= sets the prediction target latitude", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/phenology?search=&lat=37.5")
+      # The number input's value attribute reflects the chosen lat.
+      assert html =~ ~s(name="target_lat") and html =~ ~s(value="37.5")
+    end
+
+    test "predictions panel renders when enough obs with seasind", %{conn: conn} do
+      sp = insert_gall("Dryocosmus quercuspalustris (sexgen)")
+
+      for s <- [0.30, 0.40, 0.50, 0.60] do
+        insert_obs(sp.id, %{
+          phenophase: "maturing",
+          seasind: s,
+          date: ~D[2024-06-15],
+          doy: 167
+        })
+      end
+
+      {:ok, _view, html} = live(conn, ~p"/phenology")
+
+      assert html =~ "Predicted windows at"
+      assert html =~ "Adults of the sexual generation are expected to emerge"
+      assert html =~ "n=4"
+    end
+
+    test "predictions panel absent when below threshold", %{conn: conn} do
+      sp = insert_gall("Dryocosmus quercuspalustris (sexgen)")
+      # Only 3 obs with seasind — below @min_obs = 4.
+      for s <- [0.30, 0.40, 0.50] do
+        insert_obs(sp.id, %{phenophase: "maturing", seasind: s})
+      end
+
+      {:ok, _view, html} = live(conn, ~p"/phenology")
+      refute html =~ "Predicted windows at"
+    end
+
     test "?species_id= back-compat seeds search from the species name", %{conn: conn} do
       sp = insert_gall("Specific testica (agamic)")
       other = insert_gall("Other species (agamic)")

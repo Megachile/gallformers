@@ -12,6 +12,7 @@ defmodule GallformersWeb.PhenologyLive do
   use GallformersWeb, :live_view
 
   alias Gallformers.Phenology
+  alias Gallformers.Phenology.Prediction
   alias Gallformers.Species
 
   # Phenophases offered in the explorer UI, in display order. NOT the same
@@ -26,6 +27,7 @@ defmodule GallformersWeb.PhenologyLive do
   # independent override semantics — see parse_*_param below.
   @default_search ["Dryocosmus quercuspalustris"]
   @default_phenophases ~w(maturing perimature Free-living)
+  @default_target_lat 42.0
 
   @generations [:all, :sexgen, :agamic]
 
@@ -44,9 +46,11 @@ defmodule GallformersWeb.PhenologyLive do
         page_json_ld: nil,
         explorer_phenophases: @explorer_phenophases,
         filters: filters,
-        observations: []
+        observations: [],
+        predictions: []
       )
       |> load_observations()
+      |> compute_predictions()
 
     {:ok, socket}
   end
@@ -59,6 +63,7 @@ defmodule GallformersWeb.PhenologyLive do
      socket
      |> assign(filters: filters)
      |> load_observations()
+     |> compute_predictions()
      |> push_patch(to: ~p"/phenology?#{filters_to_query(filters)}", replace: true)}
   end
 
@@ -83,7 +88,8 @@ defmodule GallformersWeb.PhenologyLive do
       search: parse_search_param(params),
       generation: parse_generation(params["gen"]),
       phenophases: parse_phenophases_param(params),
-      display_mode: parse_display_mode(params["display"])
+      display_mode: parse_display_mode(params["display"]),
+      target_lat: parse_target_lat(params["lat"])
     }
   end
 
@@ -94,9 +100,25 @@ defmodule GallformersWeb.PhenologyLive do
       search: parse_search_value(form_params["search"]),
       generation: parse_generation(form_params["generation"]),
       phenophases: parse_phenophases_form(form_params["phenophases"]),
-      display_mode: parse_display_mode(form_params["display"])
+      display_mode: parse_display_mode(form_params["display"]),
+      target_lat: parse_target_lat(form_params["target_lat"])
     }
   end
+
+  defp parse_target_lat(nil), do: @default_target_lat
+  defp parse_target_lat(""), do: @default_target_lat
+
+  defp parse_target_lat(value) when is_binary(value) do
+    case Float.parse(String.trim(value)) do
+      {f, _} when f >= -90.0 and f <= 90.0 -> f
+      _ -> @default_target_lat
+    end
+  end
+
+  defp parse_target_lat(value) when is_number(value) and value >= -90 and value <= 90,
+    do: value * 1.0
+
+  defp parse_target_lat(_), do: @default_target_lat
 
   defp parse_display_mode("table"), do: :data_table
   defp parse_display_mode("species"), do: :species_list
@@ -190,7 +212,14 @@ defmodule GallformersWeb.PhenologyLive do
     |> maybe_put_gen(filters[:generation])
     |> maybe_put_phen(filters[:phenophases])
     |> maybe_put_display(filters[:display_mode])
+    |> maybe_put_lat(filters[:target_lat])
   end
+
+  defp maybe_put_lat(query, lat) when is_number(lat) do
+    if lat == @default_target_lat, do: query, else: query ++ [lat: to_string(lat)]
+  end
+
+  defp maybe_put_lat(query, _), do: query
 
   defp maybe_put_display(query, :chart), do: query
   defp maybe_put_display(query, :data_table), do: query ++ [display: "table"]
@@ -229,6 +258,17 @@ defmodule GallformersWeb.PhenologyLive do
   defp load_observations(socket) do
     observations = Phenology.search_observations(socket.assigns.filters)
     assign(socket, observations: observations)
+  end
+
+  defp compute_predictions(socket) do
+    target_lat = socket.assigns.filters[:target_lat] || @default_target_lat
+
+    predictions =
+      socket.assigns.observations
+      |> Prediction.predictions_for(target_lat)
+      |> Enum.sort_by(&{&1.generation, &1.event})
+
+    assign(socket, predictions: predictions)
   end
 
   # ----------------------------------------------------------------------
@@ -374,19 +414,44 @@ defmodule GallformersWeb.PhenologyLive do
           </fieldset>
         </div>
 
-        <fieldset style="border: none; padding: 0; margin: 0;">
-          <legend style="font-weight: 600; padding: 0; margin-bottom: 4px;">View</legend>
-          <%= for {value, label} <- [{"chart", "Chart"}, {"table", "Data table"}, {"species", "Species list"}] do %>
-            <label style="margin-right: 12px; font-size: 13px;">
-              <input
-                type="radio"
-                name="display"
-                value={value}
-                checked={display_value(@filters) == value}
-              /> {label}
+        <div style="display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap;">
+          <fieldset style="border: none; padding: 0; margin: 0;">
+            <legend style="font-weight: 600; padding: 0; margin-bottom: 4px;">View</legend>
+            <%= for {value, label} <- [{"chart", "Chart"}, {"table", "Data table"}, {"species", "Species list"}] do %>
+              <label style="margin-right: 12px; font-size: 13px;">
+                <input
+                  type="radio"
+                  name="display"
+                  value={value}
+                  checked={display_value(@filters) == value}
+                /> {label}
+              </label>
+            <% end %>
+          </fieldset>
+
+          <div>
+            <label
+              for="target_lat"
+              style="font-weight: 600; display: block; margin-bottom: 4px;"
+            >
+              Predict at latitude
             </label>
-          <% end %>
-        </fieldset>
+            <input
+              type="number"
+              name="target_lat"
+              id="target_lat"
+              value={format_target_lat(@filters[:target_lat])}
+              step="0.5"
+              min="-90"
+              max="90"
+              phx-debounce="400"
+              style="width: 80px; padding: 4px 6px; border: 1px solid #ccc; border-radius: 3px;"
+            />
+            <span style="margin-left: 6px; color: #666; font-size: 12px;">
+              °N (negative = °S)
+            </span>
+          </div>
+        </div>
       </form>
 
       <div style="font-size: 13px; color: #444; margin: 8px 0; display: flex; gap: 12px; align-items: center;">
@@ -456,6 +521,33 @@ defmodule GallformersWeb.PhenologyLive do
             style="height: 540px; border: 1px solid #ddd; background: #fff; border-radius: 4px;"
           >
           </div>
+
+          <%= if @predictions != [] do %>
+            <div
+              id="phenology-predictions"
+              style="margin-top: 12px; padding: 10px 12px; background: #f5f3ec;
+                     border: 1px solid #ddd; border-radius: 4px; font-size: 13px;"
+            >
+              <div style="font-weight: 600; margin-bottom: 6px;">
+                Predicted windows at {format_target_lat(@filters[:target_lat])}°{lat_hemisphere(
+                  @filters[:target_lat]
+                )}
+              </div>
+              <ul style="margin: 0; padding-left: 18px;">
+                <li :for={p <- @predictions} style="margin-bottom: 2px;">
+                  {prediction_sentence(p)}
+                </li>
+              </ul>
+              <span style="display: block; color: #666; font-size: 11px; margin-top: 4px;">
+                Based on the seasind IQR of matched observations, back-projected
+                to your latitude. Predictions are NH-temperate-calibrated — see
+                <a href="https://github.com/Megachile/gallformers/issues/1">
+                  issue #1
+                </a>
+                for the SH validation roadmap.
+              </span>
+            </div>
+          <% end %>
       <% end %>
     </div>
     """
@@ -464,4 +556,47 @@ defmodule GallformersWeb.PhenologyLive do
   defp format_coord(c) when is_float(c), do: :erlang.float_to_binary(c, [:compact, decimals: 3])
   defp format_coord(c) when is_number(c), do: to_string(c)
   defp format_coord(_), do: ""
+
+  defp format_target_lat(lat) when is_float(lat),
+    do: :erlang.float_to_binary(abs(lat), [:compact, decimals: 1])
+
+  defp format_target_lat(lat) when is_number(lat), do: to_string(abs(lat))
+  defp format_target_lat(_), do: to_string(@default_target_lat)
+
+  defp lat_hemisphere(lat) when is_number(lat) and lat < 0, do: "S"
+  defp lat_hemisphere(_), do: "N"
+
+  # Build the human-readable sentence for a single prediction row.
+  # Matches the Shiny app's phrasing: "At X°N, [adults of the sexual
+  # generation are expected to emerge] between MM/DD and MM/DD."
+  defp prediction_sentence(p) do
+    "#{event_phrase(p.event, p.generation)} between #{doy_label(p.low_doy)} and " <>
+      "#{doy_label(p.high_doy)} (n=#{p.n})."
+  end
+
+  defp event_phrase(:emergence, :sexgen),
+    do: "Adults of the sexual generation are expected to emerge"
+
+  defp event_phrase(:emergence, :agamic),
+    do: "Adults of the agamic generation are expected to emerge"
+
+  defp event_phrase(:emergence, :unknown),
+    do: "Adults (unknown generation) are expected to emerge"
+
+  defp event_phrase(:rearing, :sexgen),
+    do: "Galls of the sexual generation can likely be collected for rearing"
+
+  defp event_phrase(:rearing, :agamic),
+    do: "Galls of the agamic generation can likely be collected for rearing"
+
+  defp event_phrase(:rearing, :unknown),
+    do: "Galls (unknown generation) can likely be collected for rearing"
+
+  defp doy_label(doy) when is_integer(doy) and doy >= 1 and doy <= 366 do
+    ~D[2024-01-01]
+    |> Date.add(doy - 1)
+    |> Calendar.strftime("%b %-d")
+  end
+
+  defp doy_label(_), do: "?"
 end

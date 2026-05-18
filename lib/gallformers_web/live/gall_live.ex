@@ -11,6 +11,7 @@ defmodule GallformersWeb.GallLive do
     Galls,
     Glossaries,
     Markdown,
+    Phenology,
     Places,
     Ranges,
     Sources,
@@ -20,6 +21,7 @@ defmodule GallformersWeb.GallLive do
 
   alias Gallformers.Images
   alias Gallformers.Images.Image
+  alias GallformersWeb.PhenologyComponents
   alias GallformersWeb.SEO
 
   @aliases_page_size 10
@@ -105,6 +107,11 @@ defmodule GallformersWeb.GallLive do
         gall_filters = Galls.get_gall_filter_values(gall_id)
         related_galls = Galls.get_related_galls(gall)
 
+        phenology_observations =
+          gall_id
+          |> Phenology.list_observations_for_species()
+          |> Enum.map(&PhenologyComponents.to_summary_map/1)
+
         # Parse generation qualifier (agamic/sexgen/sexual) and fetch glossary definition
         {base_name, generation_term, glossary_word, generation_definition} =
           parse_generation_term(gall.name)
@@ -157,6 +164,8 @@ defmodule GallformersWeb.GallLive do
            range_bounds: range_bounds,
            only_placeholder_hosts?: only_placeholder_hosts?,
            related_galls: related_galls,
+           phenology_observations: phenology_observations,
+           phenology_target_lat: nil,
            common_names: common_names,
            scientific_aliases: scientific_aliases,
            gallformers_code: gallformers_code,
@@ -227,6 +236,10 @@ defmodule GallformersWeb.GallLive do
   end
 
   @impl true
+  def handle_event("set_phenology_lat", %{"target_lat" => value}, socket) do
+    {:noreply, assign(socket, phenology_target_lat: value)}
+  end
+
   def handle_event("dismiss_notes_alert", _params, socket) do
     {:noreply, assign(socket, notes_alert_dismissed: true)}
   end
@@ -580,6 +593,14 @@ defmodule GallformersWeb.GallLive do
                 current_user={@current_user}
               />
             </div>
+          </div>
+
+          <div class="my-4">
+            <PhenologyComponents.phenology_summary
+              species_id={@gall.id}
+              observations={@phenology_observations}
+              target_lat={@phenology_target_lat}
+            />
           </div>
 
           <hr class="border-gray-200 my-4" />

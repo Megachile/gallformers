@@ -261,6 +261,54 @@ defmodule GallformersWeb.PhenologyLiveTest do
       refute html =~ "Acraspis b"
     end
 
+    test "?min_lat/?max_lat/?min_lng/?max_lng filter on observation coords",
+         %{conn: conn} do
+      sp = insert_gall("Acraspis bound (agamic)")
+      # In-box: lat 40, lng -80
+      insert_obs(sp.id, %{
+        phenophase: "maturing",
+        latitude: 40.0,
+        longitude: -80.0,
+        date: ~D[2024-06-15],
+        doy: 167
+      })
+
+      # Out-of-box on latitude (too far north)
+      insert_obs(sp.id, %{
+        phenophase: "maturing",
+        latitude: 60.0,
+        longitude: -80.0,
+        date: ~D[2024-06-15],
+        doy: 167
+      })
+
+      # Out-of-box on longitude (too far west)
+      insert_obs(sp.id, %{
+        phenophase: "maturing",
+        latitude: 40.0,
+        longitude: -120.0,
+        date: ~D[2024-06-15],
+        doy: 167
+      })
+
+      # Null coords — should be dropped when any coordinate bound is set
+      insert_obs(sp.id, %{
+        phenophase: "maturing",
+        latitude: nil,
+        longitude: nil,
+        date: ~D[2024-06-15],
+        doy: 167
+      })
+
+      {:ok, _view, html} =
+        live(
+          conn,
+          ~p"/phenology?search=&min_lat=35&max_lat=45&min_lng=-90&max_lng=-70"
+        )
+
+      assert html =~ "1 observation"
+    end
+
     test "?display=table renders the obs data table", %{conn: conn} do
       sp = insert_gall("Acraspis erinacei (agamic)")
       insert_obs(sp.id, %{phenophase: "maturing", site: "Ann Arbor", state: "MI"})
@@ -353,84 +401,14 @@ defmodule GallformersWeb.PhenologyLiveTest do
       refute html =~ "Predicted windows at"
     end
 
-    test "brush selection narrows the lower panel obs", %{conn: conn} do
-      sp = insert_gall("Acraspis erinacei (agamic)")
-      # Two obs at different DOYs — brush window of ~100-150 should keep
-      # the first one and drop the second.
-      insert_obs(sp.id, %{phenophase: "maturing", doy: 120, date: ~D[2024-04-29]})
-      insert_obs(sp.id, %{phenophase: "maturing", doy: 200, date: ~D[2024-07-18]})
-
-      {:ok, view, _html} = live(conn, ~p"/phenology?search=&display=table")
-
-      # No selection initially: both obs in the table.
-      html = render(view)
-      assert html =~ "2 observations"
-
-      # Apply a brush selection that should keep only the DOY 120 obs.
-      html =
-        render_hook(view, "set_selection", %{
-          "doy_min" => "100",
-          "doy_max" => "150",
-          "lat_min" => "0",
-          "lat_max" => "90"
-        })
-
-      assert html =~ "1 in brush selection"
-      assert html =~ "Clear selection"
-      # CSV link now carries the brush bounds (the filter window, not the
-      # specific obs DOY).
-      assert html =~ "doy_min=100"
-      assert html =~ "doy_max=150"
-    end
-
-    test "clear_selection event removes the brush", %{conn: conn} do
-      sp = insert_gall("Acraspis erinacei (agamic)")
-      insert_obs(sp.id, %{phenophase: "maturing", doy: 167})
-
-      {:ok, view, _html} = live(conn, ~p"/phenology?search=&display=table")
-
-      render_hook(view, "set_selection", %{
-        "doy_min" => "100",
-        "doy_max" => "200",
-        "lat_min" => "0",
-        "lat_max" => "90"
-      })
-
-      html = render(view)
-      assert html =~ "in brush selection"
-
-      html = render_hook(view, "clear_selection", %{})
-      refute html =~ "in brush selection"
-      refute html =~ "Clear selection"
-    end
-
-    test "filter changes wipe the brush selection", %{conn: conn} do
-      sp = insert_gall("Acraspis erinacei (agamic)")
-      insert_obs(sp.id, %{phenophase: "maturing", doy: 167})
-
-      {:ok, view, _html} = live(conn, ~p"/phenology?search=&display=table")
-
-      render_hook(view, "set_selection", %{
-        "doy_min" => "100",
-        "doy_max" => "200",
-        "lat_min" => "0",
-        "lat_max" => "90"
-      })
-
-      html = render(view)
-      assert html =~ "in brush selection"
-
-      # Change a filter; selection should be cleared automatically.
-      html =
-        render_change(view, "update_filters", %{
-          "search" => "",
-          "generation" => "all",
-          "phenophases" => ["maturing"],
-          "display" => "table"
-        })
-
-      refute html =~ "in brush selection"
-    end
+    # Brush behavior — selecting points on the chart, narrowing the table
+    # to the brush window, the Clear-selection button, and the CSV link
+    # picking up brush bounds — used to be testable via render_hook on
+    # "set_selection" / "clear_selection". Those server events are gone
+    # (the brush lives entirely in phenology_chart.js / phenology_state.js
+    # / phenology_chrome.js to avoid a per-gesture LV roundtrip), so the
+    # behavior is now JS-only. Move to a browser-level e2e suite if we
+    # want coverage.
 
     test "?species_id= back-compat seeds search from the species name", %{conn: conn} do
       sp = insert_gall("Specific testica (agamic)")

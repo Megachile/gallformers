@@ -34,6 +34,10 @@ config :gallformers, GallformersWeb.Endpoint,
   url: [host: "localhost", port: 4000],
   http: [ip: {127, 0, 0, 1}],
   check_origin: false,
+  # PERF EXPERIMENT — temporarily off to isolate dev-tooling cost from
+  # the LV roundtrip floor. Revert to `true` when you want auto-reload
+  # back. With this off, file edits won't pick up until you restart
+  # `mix phx.server`.
   code_reloader: true,
   debug_errors: true,
   secret_key_base: "7FjN9MMQWSwTXLk2h88NQ/dHYWEpNTFJC8IdiQSJ1kiTAZnV+MZmhGHlJ208V46a",
@@ -101,7 +105,8 @@ config :phoenix_live_view,
   # Changing this configuration will require mix clean and a full recompile.
   debug_heex_annotations: true,
   debug_attributes: true,
-  # Enable helpful, but potentially expensive runtime checks
+  # PERF EXPERIMENT — temporarily off. Docs explicitly call this out as
+  # "potentially expensive." Flip back to `true` when done.
   enable_expensive_runtime_checks: true
 
 # Disable swoosh api client as it is only required for production adapters.

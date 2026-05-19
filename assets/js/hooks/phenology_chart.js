@@ -5,6 +5,7 @@ import { extent } from 'd3-array'
 import { brush } from 'd3-brush'
 import { symbol, symbolCircle, symbolTriangle, symbolSquare,
          symbolStar, symbolCross, symbolDiamond, symbolWye } from 'd3-shape'
+import { phenologyState } from './phenology_state'
 
 // Mapping must match `Gallformers.Phenology.Observation.phenophases/0`.
 const PHENO_SYMBOL = {
@@ -27,13 +28,50 @@ const MONTH_TICKS  = [1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335]
 const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
 export default {
-  mounted()  { this.renderChart() },
-  updated()  { this.renderChart() },
+  mounted() {
+    this.renderChart()
+    // The chrome hook's Clear-selection button dispatches this event when
+    // clicked. We clear the SVG rect (the moveBrush('') below uses the
+    // restoringBrush flag so the d3 end handler doesn't echo) and then
+    // explicitly publish the cleared state so the table + chrome
+    // subscribers update.
+    this._clearBrushListener = () => {
+      if (this._moveBrush) this._moveBrush('')
+      phenologyState.setBrush(null)
+    }
+    document.addEventListener('phenology:clear-brush', this._clearBrushListener)
+  },
+
+  destroyed() {
+    if (this._clearBrushListener) {
+      document.removeEventListener('phenology:clear-brush', this._clearBrushListener)
+    }
+  },
+
+  // Only point-set changes drive a chart rebuild now. The brush state
+  // lives entirely in `phenologyState` and the JS hooks — no server
+  // roundtrip on brush gestures.
+  updated() {
+    const pointsRaw = this.el.dataset.points || '[]'
+    if (pointsRaw !== this._lastPointsRaw) {
+      this.renderChart()
+    }
+  },
 
   renderChart() {
-    const points = JSON.parse(this.el.dataset.points || '[]')
+    const pointsRaw = this.el.dataset.points || '[]'
+    const points = JSON.parse(pointsRaw)
+    this._lastPointsRaw = pointsRaw
+
+    // A full chart rebuild only happens on initial mount or when the
+    // underlying obs set changed (filter applied). The LV wipes its
+    // server-side selection on filter changes, so any prior client-side
+    // brush is no longer meaningful — drop it so the table hook re-renders
+    // the new full set.
+    phenologyState.setBrush(null)
 
     select(this.el).selectAll('*').remove()
+    this._moveBrush = null
     if (points.length === 0) {
       select(this.el).append('div')
         .style('padding', '40px')
@@ -95,58 +133,47 @@ export default {
     // Brush layer — added BEFORE the points so points stay above and can
     // receive mouseover events for tooltips. d3-brush emits an "end" event
     // on mouseup; we translate the pixel selection back to data domain
-    // and push it to the LiveView.
-    const hook = this
-    // We programmatically move the brush below (to restore on re-render),
-    // which would re-fire `end` with the same bounds and bounce another
-    // set_selection event back at the LV. Flag suppresses that loop.
+    // and publish to `phenologyState`. Table + chrome hooks subscribe.
+    // The chart-side moveBrush below uses `restoringBrush` to suppress the
+    // d3 "end" event that fires when we programmatically clear the rect.
     let restoringBrush = false
     const chartBrush = brush()
       .extent([[0, 0], [width, height]])
       .on('end', ({ selection }) => {
         if (restoringBrush) return
         if (!selection) {
-          hook.pushEvent('clear_selection', {})
+          phenologyState.setBrush(null)
           return
         }
         const [[x0, y0], [x1, y1]] = selection
-        hook.pushEvent('set_selection', {
+        const bounds = {
           doy_min: Math.floor(x.invert(x0)),
           doy_max: Math.ceil(x.invert(x1)),
           // y axis is inverted in screen space — top pixel is highest lat,
           // so we take the min/max explicitly to stay generation-agnostic.
           lat_min: Math.min(y.invert(y0), y.invert(y1)),
           lat_max: Math.max(y.invert(y0), y.invert(y1)),
-        })
+        }
+        phenologyState.setBrush(bounds)
       })
 
     const brushG = svg.append('g')
       .attr('class', 'brush')
       .call(chartBrush)
 
-    // Restore the brush rectangle from the LV-passed selection state.
-    // Without this, every LV re-render (toggling display mode, tweaking
-    // target_lat, etc) wipes the visual selection even though the LV
-    // still considers the brush active.
-    const brushRaw = this.el.dataset.brush
-    if (brushRaw) {
+    // Programmatically clear the rectangle (called from the chrome's
+    // Clear-selection listener). `restoringBrush` suppresses the d3 "end"
+    // event the move below would otherwise emit.
+    const moveBrush = (_raw) => {
+      restoringBrush = true
       try {
-        const sel = JSON.parse(brushRaw)
-        if (sel && sel.doy_min != null) {
-          restoringBrush = true
-          brushG.call(
-            chartBrush.move,
-            [
-              [x(sel.doy_min), y(sel.lat_max)],
-              [x(sel.doy_max), y(sel.lat_min)],
-            ]
-          )
-          restoringBrush = false
-        }
+        brushG.call(chartBrush.move, null)
       } catch (e) {
-        // Malformed data-brush attr — ignore, treat as no brush.
+        // Defensive — leave the brush untouched.
       }
+      restoringBrush = false
     }
+    this._moveBrush = moveBrush
 
     // Points — drawn on top of the brush overlay. Each path captures its
     // own mouseover; the brush still works for empty-area drag-selection.

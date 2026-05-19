@@ -34,9 +34,13 @@ defmodule GallformersWeb.PhenologyLive do
         filters: filters,
         observations: [],
         chart_points_json: "[]",
-        selected_observations: [],
+        # Bumped every time `load_observations` runs. The JS table hook
+        # reads it off the host's `data-version` attr and re-renders rows
+        # from `data-points` when it changes (filter applied → new obs
+        # set). The hook owns the inner DOM via `phx-update="ignore"`,
+        # so this is how it learns "the underlying obs set just changed."
+        obs_version: 0,
         predictions: [],
-        selection: nil,
         initialized?: false
       )
 
@@ -51,7 +55,6 @@ defmodule GallformersWeb.PhenologyLive do
       if connected?(socket) do
         socket
         |> load_observations()
-        |> apply_selection()
         |> compute_predictions()
         |> assign(initialized?: true)
       else
@@ -80,22 +83,29 @@ defmodule GallformersWeb.PhenologyLive do
     {:noreply, socket}
   end
 
-  # Brush events from the D3 hook. Bounds are in data domain (DOY for x,
-  # latitude for y); the hook pre-translates from pixel space.
-  def handle_event("set_selection", params, socket) do
-    selection = PhenologyFilters.parse_brush(params)
+  # Map widget's Clear-box button. Nulls the four coord filters, re-runs
+  # the obs query, and pushes the cleared filter state into the URL. The
+  # chart's JS hook drops any active brush when it re-renders on the new
+  # obs set, so no server-side brush bookkeeping is needed.
+  def handle_event("clear_coord_bounds", _params, socket) do
+    new_filters =
+      socket.assigns.filters
+      |> Map.put(:min_lat, nil)
+      |> Map.put(:max_lat, nil)
+      |> Map.put(:min_lng, nil)
+      |> Map.put(:max_lng, nil)
 
-    {:noreply,
-     socket
-     |> assign(selection: selection)
-     |> apply_selection()}
-  end
+    socket =
+      socket
+      |> assign(filters: new_filters)
+      |> load_observations()
+      |> compute_predictions()
+      |> push_patch(
+        to: ~p"/phenology?#{PhenologyFilters.to_query(new_filters)}",
+        replace: true
+      )
 
-  def handle_event("clear_selection", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(selection: nil)
-     |> apply_selection()}
+    {:noreply, socket}
   end
 
   # Only `search` / `generation` / `phenophases` affect the DB query and
@@ -106,17 +116,20 @@ defmodule GallformersWeb.PhenologyLive do
   defp query_affecting_filters_changed?(a, b) do
     a[:search] != b[:search] or
       a[:generation] != b[:generation] or
-      a[:phenophases] != b[:phenophases]
+      a[:phenophases] != b[:phenophases] or
+      a[:min_lat] != b[:min_lat] or
+      a[:max_lat] != b[:max_lat] or
+      a[:min_lng] != b[:min_lng] or
+      a[:max_lng] != b[:max_lng]
   end
 
   defp maybe_reload_obs(socket, false), do: socket
 
   defp maybe_reload_obs(socket, true) do
-    socket
-    # New obs set → any prior brush selection is no longer meaningful.
-    |> assign(selection: nil)
-    |> load_observations()
-    |> apply_selection()
+    # New obs set → any prior brush selection is no longer meaningful, but
+    # the brush state lives entirely in the chart's JS hook now; it drops
+    # itself when the chart re-renders from a new points set.
+    load_observations(socket)
   end
 
   @impl true
@@ -134,27 +147,11 @@ defmodule GallformersWeb.PhenologyLive do
     # mode toggle, target_lat tweak, brush event, etc).
     chart_points_json = observations |> chart_points() |> Jason.encode!()
 
-    assign(socket, observations: observations, chart_points_json: chart_points_json)
-  end
-
-  # Compute the "selected" subset = obs ∩ brush bounds. The chart always
-  # shows all `observations`; the lower panel (data_table / species_list)
-  # shows the selection-filtered set. When there's no selection, the two
-  # are identical so the panel just shows everything.
-  defp apply_selection(socket) do
-    selected =
-      case socket.assigns.selection do
-        nil ->
-          socket.assigns.observations
-
-        %{doy_min: dmin, doy_max: dmax, lat_min: lmin, lat_max: lmax} ->
-          Enum.filter(socket.assigns.observations, fn o ->
-            o.doy >= dmin and o.doy <= dmax and
-              is_number(o.latitude) and o.latitude >= lmin and o.latitude <= lmax
-          end)
-      end
-
-    assign(socket, selected_observations: selected)
+    assign(socket,
+      observations: observations,
+      chart_points_json: chart_points_json,
+      obs_version: socket.assigns.obs_version + 1
+    )
   end
 
   defp compute_predictions(socket) do
@@ -173,18 +170,28 @@ defmodule GallformersWeb.PhenologyLive do
   # ----------------------------------------------------------------------
 
   @doc false
+  # Per-observation payload shipped to the chart hook in `data-points`.
+  # The JS-rendered data table and species list both read from this same
+  # array, so it carries every field they need to render (host name,
+  # longitude, source/page URLs, species_id for the gall-page link).
   def chart_points(observations) do
     Enum.map(observations, fn o ->
       %{
-        doy: o.doy,
-        lat: o.latitude,
-        date: format_obs_date(o.date),
+        id: o.id,
+        species_id: o.species_id,
         species_name: o.species_name,
+        host_species_name: o.host_species_name,
+        doy: o.doy,
+        date: format_obs_date(o.date),
+        lat: o.latitude,
+        lng: o.longitude,
         generation: generation_of(o.species_name),
         phenophase: o.phenophase || "(none)",
         lifestage: o.lifestage || "",
         viability: o.viability || "",
         source_type: o.source_type,
+        source_url: o.source_url,
+        page_url: o.page_url,
         site: o.site || "",
         state: o.state || "",
         country: o.country || ""
@@ -230,12 +237,21 @@ defmodule GallformersWeb.PhenologyLive do
     |> Enum.sort_by(& &1.name)
   end
 
-  # Path for the CSV export endpoint, preserving the current filter state
-  # plus an optional brush selection. The controller honors the brush
-  # bounds when present so the CSV matches what's on screen.
-  defp export_path(filters, selection) do
-    query = PhenologyFilters.to_query(filters) ++ PhenologyFilters.brush_query(selection)
+  # Path for the CSV export endpoint, preserving the current filter state.
+  # The brush selection (if any) is appended client-side by the
+  # PhenologyCsvLink hook — see assets/js/hooks/phenology_csv_link.js.
+  # The controller still honors the brush params when present.
+  defp export_path(filters, _selection) do
+    query = PhenologyFilters.to_query(filters)
     ~p"/phenology/export.csv?#{query}"
+  end
+
+  # Resolves the PMTiles boundaries URL for the bounds-picker map.
+  # Mirrors `range_map`: configured per-env in dev/test/runtime, falling
+  # back to the production CloudFront-ish path. In dev this is
+  # `/data/boundaries.pmtiles`, not `/tiles/...`.
+  defp tiles_url do
+    Application.get_env(:gallformers, :tiles_url, "/tiles/boundaries.pmtiles")
   end
 
   # ----------------------------------------------------------------------
@@ -312,6 +328,106 @@ defmodule GallformersWeb.PhenologyLive do
           </fieldset>
         </div>
 
+        <fieldset style="border: none; padding: 0; margin: 0;">
+          <legend style="font-weight: 600; padding: 0; margin-bottom: 4px;">
+            Observation coordinates (optional)
+          </legend>
+          <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap; font-size: 13px;">
+            <span style="display: inline-flex; gap: 6px; align-items: center;">
+              <span>Lat</span>
+              <input
+                type="number"
+                name="min_lat"
+                value={format_coord_bound(@filters[:min_lat])}
+                step="0.1"
+                min="-90"
+                max="90"
+                phx-debounce="400"
+                aria-label="Minimum latitude"
+                style="width: 72px; padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px;"
+              />
+              <span>to</span>
+              <input
+                type="number"
+                name="max_lat"
+                value={format_coord_bound(@filters[:max_lat])}
+                step="0.1"
+                min="-90"
+                max="90"
+                phx-debounce="400"
+                aria-label="Maximum latitude"
+                style="width: 72px; padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px;"
+              />
+            </span>
+            <span style="display: inline-flex; gap: 6px; align-items: center;">
+              <span>Lng</span>
+              <input
+                type="number"
+                name="min_lng"
+                value={format_coord_bound(@filters[:min_lng])}
+                step="0.1"
+                min="-180"
+                max="180"
+                phx-debounce="400"
+                aria-label="Minimum longitude"
+                style="width: 78px; padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px;"
+              />
+              <span>to</span>
+              <input
+                type="number"
+                name="max_lng"
+                value={format_coord_bound(@filters[:max_lng])}
+                step="0.1"
+                min="-180"
+                max="180"
+                phx-debounce="400"
+                aria-label="Maximum longitude"
+                style="width: 78px; padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px;"
+              />
+            </span>
+            <span style="color: #666; font-size: 11px;">
+              Drops species with no observations in the box. Leave blank for no filter.
+            </span>
+            <button
+              :if={
+                @filters[:min_lat] || @filters[:max_lat] ||
+                  @filters[:min_lng] || @filters[:max_lng]
+              }
+              type="button"
+              phx-click="clear_coord_bounds"
+              style="font-size: 11px; padding: 1px 8px; border: 1px solid #ccc;
+                     background: #fff; border-radius: 3px; cursor: pointer;"
+            >
+              Clear box
+            </button>
+          </div>
+
+          <%!-- MapLibre widget under the inputs. Shift+drag draws the box;
+                normal drag still pans. The hook is the canonical writer of
+                the form input values, and reads the host's data-* attrs to
+                hydrate the rectangle on URL deep-link or typed-input
+                changes. phx-update="ignore" so the LV doesn't recreate the
+                canvas on every diff. --%>
+          <div
+            id="phenology-bounds-map"
+            phx-hook="PhenologyBoundsMap"
+            phx-update="ignore"
+            data-min-lat={format_coord_bound(@filters[:min_lat])}
+            data-max-lat={format_coord_bound(@filters[:max_lat])}
+            data-min-lng={format_coord_bound(@filters[:min_lng])}
+            data-max-lng={format_coord_bound(@filters[:max_lng])}
+            data-obs-version={@obs_version}
+            data-tiles-url={tiles_url()}
+            style="margin-top: 8px; height: 280px; border: 1px solid #ddd;
+                   border-radius: 4px; background: #ADD8E6;"
+          >
+          </div>
+          <span style="display: block; color: #666; font-size: 11px; margin-top: 2px;">
+            Shift + drag on the map to draw a bounding box. Drag without shift
+            to pan; scroll to zoom.
+          </span>
+        </fieldset>
+
         <div style="display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap;">
           <fieldset style="border: none; padding: 0; margin: 0;">
             <legend style="font-weight: 600; padding: 0; margin-bottom: 4px;">
@@ -354,6 +470,19 @@ defmodule GallformersWeb.PhenologyLive do
         </div>
       </form>
 
+      <%!-- Chrome bar. Three things hang off the brush state:
+              - "· N in brush selection" count
+              - Clear-selection button
+              - Download CSV link's href (brush bounds get appended)
+            None of these can cost a per-brush LV roundtrip, so they're
+            all JS-driven via the phenologyState pub/sub.
+
+            Two separate hooks because the CSV link's existence depends
+            on server state (display_mode + obs presence) and so must be
+            server-rendered with normal LV diffing. The brush count +
+            Clear button are pure client state (nothing to render until
+            JS publishes a brush) and live in a `phx-update="ignore"`
+            host the hook owns. --%>
       <div style="font-size: 13px; color: #444; margin: 8px 0; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
         <span :if={not @initialized?} style="color: #888; font-style: italic;">
           Loading observations…
@@ -363,27 +492,22 @@ defmodule GallformersWeb.PhenologyLive do
             @observations
           )} species
         </span>
-        <span
-          :if={@selection != nil}
-          style="color: #2b5e3a; font-weight: 600;"
+        <div
+          id="phenology-brush-chrome"
+          phx-hook="PhenologyChrome"
+          phx-update="ignore"
+          style="display: contents;"
         >
-          · {length(@selected_observations)} in brush selection
-        </span>
-        <button
-          :if={@selection != nil}
-          type="button"
-          phx-click="clear_selection"
-          style="font-size: 11px; padding: 1px 8px; border: 1px solid #ccc;
-                 background: #fff; border-radius: 3px; cursor: pointer;"
-        >
-          Clear selection
-        </button>
+        </div>
         <.link
           :if={
             @filters.display_mode in [:data_table, :species_list] and
-              @selected_observations != []
+              @observations != []
           }
-          href={export_path(@filters, @selection)}
+          id="phenology-csv-link"
+          phx-hook="PhenologyCsvLink"
+          href={export_path(@filters, nil)}
+          data-href-base={export_path(@filters, nil)}
           style="font-size: 12px; color: #2b5e3a; text-decoration: underline;"
         >
           Download CSV
@@ -407,7 +531,6 @@ defmodule GallformersWeb.PhenologyLive do
             phx-hook="PhenologyChart"
             phx-update="ignore"
             data-points={@chart_points_json}
-            data-brush={brush_data_attr(@selection)}
             style="height: 540px; border: 1px solid #ddd; background: #fff;
                  border-radius: 4px; position: relative;"
           >
@@ -419,10 +542,20 @@ defmodule GallformersWeb.PhenologyLive do
 
           <%= cond do %>
             <% @filters.display_mode == :data_table -> %>
-              <div style="margin-top: 12px; overflow-x: auto; border: 1px solid #ddd; background: #fff; border-radius: 4px;">
+              <div
+                id="phenology-table-host"
+                phx-hook="PhenologyTable"
+                phx-update="ignore"
+                data-mode="table"
+                data-version={@obs_version}
+                style="margin-top: 12px; max-height: 60vh; overflow: auto; border: 1px solid #ddd; background: #fff; border-radius: 4px;"
+              >
+                <%!-- SSR / no-JS fallback only. The hook owns this DOM
+                      after mount and filters by brush in JS — see
+                      assets/js/hooks/phenology_table.js. --%>
                 <.table
                   id="phenology-obs-table"
-                  rows={@selected_observations}
+                  rows={@observations}
                   variant="compact"
                 >
                   <:col :let={o} label="Species">{o.species_name}</:col>
@@ -451,10 +584,19 @@ defmodule GallformersWeb.PhenologyLive do
                 </.table>
               </div>
             <% @filters.display_mode == :species_list -> %>
-              <div style="margin-top: 12px; overflow-x: auto; border: 1px solid #ddd; background: #fff; border-radius: 4px;">
+              <div
+                id="phenology-table-host"
+                phx-hook="PhenologyTable"
+                phx-update="ignore"
+                data-mode="species"
+                data-version={@obs_version}
+                style="margin-top: 12px; max-height: 60vh; overflow: auto; border: 1px solid #ddd; background: #fff; border-radius: 4px;"
+              >
+                <%!-- SSR / no-JS fallback only — see comment on the
+                      obs-table host above. --%>
                 <.table
                   id="phenology-species-table"
-                  rows={species_rows(@selected_observations)}
+                  rows={species_rows(@observations)}
                   variant="compact"
                 >
                   <:col :let={row} label="Species">
@@ -506,11 +648,11 @@ defmodule GallformersWeb.PhenologyLive do
   defp format_target_lat(lat) when is_number(lat), do: to_string(abs(lat))
   defp format_target_lat(_), do: to_string(PhenologyFilters.default_target_lat())
 
-  # Encode the current brush selection for the chart hook to restore after
-  # a re-render. `""` (rather than nil) so the data attribute is always
-  # present and the hook can simply check for empty.
-  defp brush_data_attr(nil), do: ""
-  defp brush_data_attr(selection) when is_map(selection), do: Jason.encode!(selection)
+  defp format_coord_bound(v) when is_float(v),
+    do: :erlang.float_to_binary(v, [:compact, decimals: 4])
+
+  defp format_coord_bound(v) when is_number(v), do: to_string(v)
+  defp format_coord_bound(_), do: ""
 
   defp lat_hemisphere(lat) when is_number(lat) and lat < 0, do: "S"
   defp lat_hemisphere(_), do: "N"

@@ -127,6 +127,7 @@ defmodule Gallformers.Phenology do
     |> apply_search_filter(Map.get(filters, :search))
     |> apply_generation_filter(Map.get(filters, :generation, :all))
     |> apply_phenophase_filter(Map.get(filters, :phenophases))
+    |> apply_coordinate_filter(filters)
     |> Repo.all()
   end
 
@@ -176,6 +177,40 @@ defmodule Gallformers.Phenology do
   defp apply_phenophase_filter(query, phenophases) when is_list(phenophases) do
     from(o in query, where: o.phenophase in ^phenophases)
   end
+
+  # Persistent geographic filter on the observation coordinates. Any obs
+  # with NULL lat/lng is dropped as soon as any bound is set — we can't
+  # tell whether it falls inside the user's box. Bounds are independent:
+  # setting only min_lat is fine.
+  defp apply_coordinate_filter(query, filters) do
+    min_lat = Map.get(filters, :min_lat)
+    max_lat = Map.get(filters, :max_lat)
+    min_lng = Map.get(filters, :min_lng)
+    max_lng = Map.get(filters, :max_lng)
+
+    if min_lat || max_lat || min_lng || max_lng do
+      query
+      |> where([o], not is_nil(o.latitude) and not is_nil(o.longitude))
+      |> maybe_min_lat(min_lat)
+      |> maybe_max_lat(max_lat)
+      |> maybe_min_lng(min_lng)
+      |> maybe_max_lng(max_lng)
+    else
+      query
+    end
+  end
+
+  defp maybe_min_lat(query, nil), do: query
+  defp maybe_min_lat(query, v), do: where(query, [o], o.latitude >= ^v)
+
+  defp maybe_max_lat(query, nil), do: query
+  defp maybe_max_lat(query, v), do: where(query, [o], o.latitude <= ^v)
+
+  defp maybe_min_lng(query, nil), do: query
+  defp maybe_min_lng(query, v), do: where(query, [o], o.longitude >= ^v)
+
+  defp maybe_max_lng(query, nil), do: query
+  defp maybe_max_lng(query, v), do: where(query, [o], o.longitude <= ^v)
 
   @doc """
   Returns observations whose raw and processed phenophase disagree — i.e. an

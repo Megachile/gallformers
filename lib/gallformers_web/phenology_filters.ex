@@ -54,7 +54,11 @@ defmodule GallformersWeb.PhenologyFilters do
       generation: parse_generation(params["gen"]),
       phenophases: parse_phenophases_url(params),
       display_mode: parse_display_mode(params["display"]),
-      target_lat: parse_target_lat(params["lat"])
+      target_lat: parse_target_lat(params["lat"]),
+      min_lat: parse_lat_bound(params["min_lat"]),
+      max_lat: parse_lat_bound(params["max_lat"]),
+      min_lng: parse_lng_bound(params["min_lng"]),
+      max_lng: parse_lng_bound(params["max_lng"])
     }
   end
 
@@ -70,7 +74,11 @@ defmodule GallformersWeb.PhenologyFilters do
       generation: parse_generation(params["generation"]),
       phenophases: parse_phenophases_form(params["phenophases"]),
       display_mode: parse_display_mode(params["display"]),
-      target_lat: parse_target_lat(params["target_lat"])
+      target_lat: parse_target_lat(params["target_lat"]),
+      min_lat: parse_lat_bound(params["min_lat"]),
+      max_lat: parse_lat_bound(params["max_lat"]),
+      min_lng: parse_lng_bound(params["min_lng"]),
+      max_lng: parse_lng_bound(params["max_lng"])
     }
   end
 
@@ -87,12 +95,18 @@ defmodule GallformersWeb.PhenologyFilters do
     |> maybe_put_phen(filters[:phenophases])
     |> maybe_put_display(filters[:display_mode])
     |> maybe_put_lat(filters[:target_lat])
+    |> maybe_put_coord(:min_lat, filters[:min_lat])
+    |> maybe_put_coord(:max_lat, filters[:max_lat])
+    |> maybe_put_coord(:min_lng, filters[:min_lng])
+    |> maybe_put_coord(:max_lng, filters[:max_lng])
   end
 
   @doc """
   Parse brush-selection bounds from URL params (`doy_min`, `doy_max`,
   `lat_min`, `lat_max`). Returns a map or `nil`. All four params must
-  be parseable for the brush to apply.
+  be parseable for the brush to apply. The CSV export endpoint reads
+  brush bounds this way; the brush itself is appended to the URL
+  client-side by the chrome JS hook on every brush gesture.
   """
   def parse_brush(params) when is_map(params) do
     with {:ok, dmin} <- to_number(params["doy_min"]),
@@ -103,21 +117,6 @@ defmodule GallformersWeb.PhenologyFilters do
     else
       _ -> nil
     end
-  end
-
-  @doc """
-  Encode a brush map as a keyword list of URL params. Returns `[]` for
-  `nil`. Pairs with `parse_brush/1`.
-  """
-  def brush_query(nil), do: []
-
-  def brush_query(%{doy_min: dmin, doy_max: dmax, lat_min: lmin, lat_max: lmax}) do
-    [
-      doy_min: to_string(dmin),
-      doy_max: to_string(dmax),
-      lat_min: to_string(lmin),
-      lat_max: to_string(lmax)
-    ]
   end
 
   # ----------------------------------------------------------------------
@@ -239,6 +238,45 @@ defmodule GallformersWeb.PhenologyFilters do
   defp parse_target_lat(_), do: @default_target_lat
 
   # ----------------------------------------------------------------------
+  # Geographic filters (observation coordinate bounds)
+  # ----------------------------------------------------------------------
+
+  # Persistent lat/lng range filters on the observation coordinates, in
+  # the same spirit as the legacy Shiny `doyCalc` viewer's lat/lng inputs.
+  # Distinct from the chart brush's lat_min/lat_max — the brush is a
+  # transient on-chart selection that lives only on the CSV download URL.
+
+  defp parse_lat_bound(nil), do: nil
+  defp parse_lat_bound(""), do: nil
+
+  defp parse_lat_bound(value) when is_binary(value) do
+    case Float.parse(String.trim(value)) do
+      {f, _} when f >= -90.0 and f <= 90.0 -> f
+      _ -> nil
+    end
+  end
+
+  defp parse_lat_bound(value) when is_number(value) and value >= -90 and value <= 90,
+    do: value * 1.0
+
+  defp parse_lat_bound(_), do: nil
+
+  defp parse_lng_bound(nil), do: nil
+  defp parse_lng_bound(""), do: nil
+
+  defp parse_lng_bound(value) when is_binary(value) do
+    case Float.parse(String.trim(value)) do
+      {f, _} when f >= -180.0 and f <= 180.0 -> f
+      _ -> nil
+    end
+  end
+
+  defp parse_lng_bound(value) when is_number(value) and value >= -180 and value <= 180,
+    do: value * 1.0
+
+  defp parse_lng_bound(_), do: nil
+
+  # ----------------------------------------------------------------------
   # URL emit (to_query helpers)
   # ----------------------------------------------------------------------
 
@@ -277,6 +315,13 @@ defmodule GallformersWeb.PhenologyFilters do
   end
 
   defp maybe_put_lat(query, _), do: query
+
+  defp maybe_put_coord(query, _key, nil), do: query
+
+  defp maybe_put_coord(query, key, value) when is_number(value),
+    do: query ++ [{key, value}]
+
+  defp maybe_put_coord(query, _key, _other), do: query
 
   # ----------------------------------------------------------------------
   # Misc

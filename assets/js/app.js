@@ -16,7 +16,11 @@ import ImageGallery from "./hooks/image_gallery"
 import ImageUpload from "./hooks/image_upload"
 import IndeterminateCheckbox from "./hooks/indeterminate_checkbox"
 import InputEvent from "./hooks/input_event"
+import PhenologyBoundsMap from "./hooks/phenology_bounds_map"
 import PhenologyChart from "./hooks/phenology_chart"
+import PhenologyChrome from "./hooks/phenology_chrome"
+import PhenologyCsvLink from "./hooks/phenology_csv_link"
+import PhenologyTable from "./hooks/phenology_table"
 import RangeMap from "./hooks/range_map"
 import RegionPrompt from "./hooks/region_prompt"
 import RegionScope from "./hooks/region_scope"
@@ -27,9 +31,15 @@ import Typeahead from "./hooks/typeahead"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
-  longPollFallbackMs: 2500,
+  // In dev, the page's synchronous mount work (maplibre + d3 chart +
+  // hooks) can block the JS event loop past 2.5s, so the WS `onopen`
+  // never gets to run before the fallback timer fires. Once that
+  // happens Phoenix caches `phx:fallback:LongPoll` and every LV
+  // interaction in the session pays per-poll latency. Give dev plenty
+  // of headroom; prod mounts cleanly so the default is fine.
+  longPollFallbackMs: process.env.NODE_ENV === "development" ? 30000 : 2500,
   params: () => ({_csrf_token: csrfToken, continent: localStorage.getItem("gf_continent")}),
-  hooks: {AdminNav, ArticleImageUpload, AutoDismiss, ContentImageUpload, CopyToClipboard, DailyChart, ImageGallery, ImageUpload, IndeterminateCheckbox, InputEvent, PhenologyChart, RangeMap, RegionPrompt, RegionScope, ScrollToCouplet, SortableImages, Tabs, Typeahead},
+  hooks: {AdminNav, ArticleImageUpload, AutoDismiss, ContentImageUpload, CopyToClipboard, DailyChart, ImageGallery, ImageUpload, IndeterminateCheckbox, InputEvent, PhenologyBoundsMap, PhenologyChart, PhenologyChrome, PhenologyCsvLink, PhenologyTable, RangeMap, RegionPrompt, RegionScope, ScrollToCouplet, SortableImages, Tabs, Typeahead},
 })
 
 // Show progress bar on live navigation and form submits

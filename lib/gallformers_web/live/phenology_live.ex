@@ -11,6 +11,7 @@ defmodule GallformersWeb.PhenologyLive do
   """
   use GallformersWeb, :live_view
 
+  alias Gallformers.Galls
   alias Gallformers.Phenology
   alias Gallformers.Phenology.Prediction
   alias GallformersWeb.PhenologyFilters
@@ -35,6 +36,9 @@ defmodule GallformersWeb.PhenologyLive do
         # phenology data, for the taxon selector. Loaded in the live mount
         # alongside observations so the dead render doesn't pay for it.
         taxon_options: [],
+        # Gall-trait checkbox options (location on host / color / shape).
+        # Loaded in the live mount too.
+        trait_options: %{plant_parts: [], colors: [], shapes: []},
         filters: filters,
         observations: [],
         chart_points_json: "[]",
@@ -59,6 +63,7 @@ defmodule GallformersWeb.PhenologyLive do
       if connected?(socket) do
         socket
         |> assign(taxon_options: Phenology.list_taxon_filter_options())
+        |> assign(trait_options: load_trait_options())
         |> load_observations()
         |> compute_predictions()
         |> assign(initialized?: true)
@@ -113,20 +118,26 @@ defmodule GallformersWeb.PhenologyLive do
     {:noreply, socket}
   end
 
-  # Only `search` / `generation` / `phenophases` affect the DB query and
-  # therefore the on-screen obs set. Changing `display_mode` or `target_lat`
-  # leaves the obs set untouched — we skip the DB roundtrip AND keep the
-  # brush selection alive (selection from a still-current obs set is still
-  # meaningful).
+  # Filters that change the DB query and therefore the on-screen obs set.
+  # Changing anything NOT in this list (display_mode, target_lat) leaves the
+  # obs set untouched — we skip the DB roundtrip AND keep the brush selection
+  # alive (a selection over a still-current obs set is still meaningful).
+  @query_affecting_keys [
+    :search,
+    :generation,
+    :phenophases,
+    :taxon_id,
+    :plant_part_ids,
+    :color_ids,
+    :shape_ids,
+    :min_lat,
+    :max_lat,
+    :min_lng,
+    :max_lng
+  ]
+
   defp query_affecting_filters_changed?(a, b) do
-    a[:search] != b[:search] or
-      a[:generation] != b[:generation] or
-      a[:phenophases] != b[:phenophases] or
-      a[:taxon_id] != b[:taxon_id] or
-      a[:min_lat] != b[:min_lat] or
-      a[:max_lat] != b[:max_lat] or
-      a[:min_lng] != b[:min_lng] or
-      a[:max_lng] != b[:max_lng]
+    Enum.any?(@query_affecting_keys, fn key -> a[key] != b[key] end)
   end
 
   defp maybe_reload_obs(socket, false), do: socket
@@ -158,6 +169,24 @@ defmodule GallformersWeb.PhenologyLive do
       chart_points_json: chart_points_json,
       obs_version: socket.assigns.obs_version + 1
     )
+  end
+
+  # The three gall-trait facets the explorer exposes, pulled from the ID
+  # tool's shared option lists so the vocabularies can't drift. Normalized to
+  # `%{id, label}` here so the template is agnostic to each facet's differing
+  # label column (part / color / shape).
+  defp load_trait_options do
+    opts = Galls.get_filter_options()
+
+    %{
+      plant_parts: normalize_trait_options(opts[:plant_parts], & &1.part),
+      colors: normalize_trait_options(opts[:colors], & &1.color),
+      shapes: normalize_trait_options(opts[:shapes], & &1.shape)
+    }
+  end
+
+  defp normalize_trait_options(list, label_fun) do
+    Enum.map(list, fn o -> %{id: o.id, label: label_fun.(o)} end)
   end
 
   defp compute_predictions(socket) do
@@ -369,6 +398,39 @@ defmodule GallformersWeb.PhenologyLive do
             </span>
           </fieldset>
         </div>
+
+        <fieldset style="border: none; padding: 0; margin: 0;">
+          <legend style="font-weight: 600; padding: 0; margin-bottom: 4px;">
+            Gall traits (optional)
+          </legend>
+          <div style="display: flex; gap: 18px; flex-wrap: wrap;">
+            <%= for {facet_label, facet_key, form_name, selected} <- [
+                  {"Location on host", :plant_parts, "plant_part_ids", @filters[:plant_part_ids]},
+                  {"Color", :colors, "color_ids", @filters[:color_ids]},
+                  {"Shape", :shapes, "shape_ids", @filters[:shape_ids]}
+                ] do %>
+              <div style="min-width: 200px;">
+                <div style="font-weight: 600; font-size: 12px; margin-bottom: 2px;">
+                  {facet_label}
+                </div>
+                <div style="display: flex; flex-wrap: wrap; gap: 2px 10px;">
+                  <label :for={opt <- @trait_options[facet_key]} style="font-size: 13px;">
+                    <input
+                      type="checkbox"
+                      name={form_name <> "[]"}
+                      value={opt.id}
+                      checked={opt.id in (selected || [])}
+                    /> {opt.label}
+                  </label>
+                </div>
+              </div>
+            <% end %>
+          </div>
+          <span style="display: block; color: #666; font-size: 11px; margin-top: 2px;">
+            Filters to galls with the selected traits (within a trait, any match;
+            across traits, all must match).
+          </span>
+        </fieldset>
 
         <fieldset style="border: none; padding: 0; margin: 0;">
           <legend style="font-weight: 600; padding: 0; margin-bottom: 4px;">

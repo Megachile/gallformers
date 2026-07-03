@@ -18,12 +18,14 @@ defmodule Gallformers.Phenology do
       Gallformers.Repo,
       Gallformers.ChangesetHelpers,
       Gallformers.SchemaFields,
-      Gallformers.Species
+      Gallformers.Species,
+      Gallformers.Galls
     ],
     exports: :all
 
   import Ecto.Query
 
+  alias Gallformers.Galls
   alias Gallformers.Phenology.Blacklist
   alias Gallformers.Phenology.Observation
   alias Gallformers.Repo
@@ -92,6 +94,10 @@ defmodule Gallformers.Phenology do
     * `:taxon_id` — a `taxonomy` node id (family, intermediate rank such as
       a tribe, or genus). Restricts obs to gall species sitting under that
       node in the taxonomy tree. Nil = no taxonomic filter.
+    * `:plant_part_ids` / `:color_ids` / `:shape_ids` — lists of gall-trait
+      filter-field ids. Restricts obs to gall species carrying those traits,
+      reusing the ID tool's filter engine (`Gallformers.Galls`). Empty / nil
+      lists = no trait filter for that facet.
 
   Always scoped to `species.taxoncode == "gall"` so host-plant rows can't
   leak in if they ever land in this table.
@@ -132,6 +138,7 @@ defmodule Gallformers.Phenology do
     |> apply_phenophase_filter(Map.get(filters, :phenophases))
     |> apply_coordinate_filter(filters)
     |> apply_taxon_filter(Map.get(filters, :taxon_id))
+    |> apply_trait_filter(filters)
     |> Repo.all()
   end
 
@@ -230,6 +237,31 @@ defmodule Gallformers.Phenology do
   end
 
   defp apply_taxon_filter(query, _), do: query
+
+  # Gall-trait filter. Rather than re-implement the nine-facet junction-table
+  # joins the ID tool already owns, we hand the selected trait ids to
+  # `Gallformers.Galls.filter_gall_species_ids/1` and constrain on the
+  # returned species set — again binding-safe via species_id. Only the facets
+  # with a non-empty selection are passed through; with none selected we skip
+  # the call (and its query) entirely.
+  defp apply_trait_filter(query, filters) do
+    trait_filters =
+      %{}
+      |> put_trait(:plant_part_ids, Map.get(filters, :plant_part_ids))
+      |> put_trait(:color_ids, Map.get(filters, :color_ids))
+      |> put_trait(:shape_ids, Map.get(filters, :shape_ids))
+
+    if map_size(trait_filters) == 0 do
+      query
+    else
+      species_ids = Galls.filter_gall_species_ids(trait_filters)
+      from(o in query, where: o.species_id in ^species_ids)
+    end
+  end
+
+  defp put_trait(map, _key, nil), do: map
+  defp put_trait(map, _key, []), do: map
+  defp put_trait(map, key, list) when is_list(list), do: Map.put(map, key, list)
 
   @doc """
   Returns the IDs of species that sit under the given `taxonomy` node —

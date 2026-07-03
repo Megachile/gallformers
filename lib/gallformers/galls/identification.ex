@@ -125,6 +125,36 @@ defmodule Gallformers.Galls.Identification do
   end
 
   @doc """
+  Returns just the species IDs of galls matching the filters.
+
+  A lightweight companion to `filter_galls/1` for callers (e.g. the
+  phenology explorer) that only need the matching id set to intersect
+  against, without the image / non-gall / place-match attachments.
+  """
+  @spec filter_gall_species_ids(map()) :: [integer()]
+  def filter_gall_species_ids(filters \\ %{}) do
+    base_query()
+    |> apply_host_filter(filters[:host_ids])
+    |> apply_genus_filter(filters[:genus_id])
+    |> apply_family_filter(filters[:family_id])
+    |> apply_plant_part_filter(filters[:plant_part_ids], filters[:plant_part_logic] || :or)
+    |> apply_color_filter(filters[:color_ids])
+    |> apply_shape_filter(filters[:shape_ids])
+    |> apply_texture_filter(filters[:texture_ids], filters[:texture_logic] || :or)
+    |> apply_alignment_filter(filters[:alignment_ids])
+    |> apply_cells_filter(filters[:cells_ids])
+    |> apply_walls_filter(filters[:walls_ids])
+    |> apply_form_filter(filters[:form_ids])
+    |> apply_season_filter(filters[:season_ids])
+    |> apply_detachable_filter(filters[:detachable])
+    |> apply_place_filter(filters[:place_codes], filters[:host_ids], filters[:genus_id])
+    |> apply_undescribed_filter(filters[:undescribed])
+    |> apply_exclude_non_gall_filter(filters[:exclude_non_galls])
+    |> select([s, gt], s.id)
+    |> Repo.all()
+  end
+
+  @doc """
   Gets hosts that have galls matching the filters.
 
   Used to show which hosts are available based on current filter selections.

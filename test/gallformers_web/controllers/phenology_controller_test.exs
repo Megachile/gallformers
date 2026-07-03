@@ -31,6 +31,19 @@ defmodule GallformersWeb.PhenologyControllerTest do
     ])
   end
 
+  defp insert_gall_traits(species_id) do
+    Repo.insert_all("gall_traits", [%{species_id: species_id}])
+  end
+
+  defp insert_color(name) do
+    {1, [%{id: id}]} = Repo.insert_all("color", [%{color: name}], returning: [:id])
+    id
+  end
+
+  defp link_color(species_id, color_id) do
+    Repo.insert_all("gall_color", [%{species_id: species_id, color_id: color_id}])
+  end
+
   defp insert_obs(species_id, attrs) do
     Map.merge(
       %{
@@ -145,6 +158,28 @@ defmodule GallformersWeb.PhenologyControllerTest do
 
       assert body =~ "Acraspis erinacei"
       refute body =~ "Eurosta solidaginis"
+    end
+
+    test "?color= filters the exported obs to galls with that trait", %{conn: conn} do
+      red = insert_color("test-crimson")
+      green = insert_color("test-lime")
+
+      sp_red = insert_gall("Acraspis reddish (agamic)")
+      sp_green = insert_gall("Andricus greenish (agamic)")
+      insert_gall_traits(sp_red.id)
+      insert_gall_traits(sp_green.id)
+      link_color(sp_red.id, red)
+      link_color(sp_green.id, green)
+      insert_obs(sp_red.id, %{})
+      insert_obs(sp_green.id, %{})
+
+      body =
+        conn
+        |> get(~p"/phenology/export.csv?search=&display=table&color=#{red}")
+        |> response(200)
+
+      assert body =~ "Acraspis reddish"
+      refute body =~ "Andricus greenish"
     end
 
     test "brush bounds in URL narrow the exported CSV", %{conn: conn} do

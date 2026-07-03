@@ -33,6 +33,25 @@ defmodule Gallformers.PhenologyTest do
     ])
   end
 
+  # gall_traits is the 1:1 extension row the ID-tool filter engine inner-joins
+  # on; a gall must have one to match any trait filter.
+  defp insert_gall_traits(species_id) do
+    Repo.insert_all("gall_traits", [%{species_id: species_id}])
+  end
+
+  defp insert_filter_field(table, column, name) do
+    {1, [%{id: id}]} = Repo.insert_all(table, [%{column => name}], returning: [:id])
+    id
+  end
+
+  defp link_color(species_id, color_id) do
+    Repo.insert_all("gall_color", [%{species_id: species_id, color_id: color_id}])
+  end
+
+  defp link_shape(species_id, shape_id) do
+    Repo.insert_all("gall_shape", [%{species_id: species_id, shape_id: shape_id}])
+  end
+
   defp valid_attrs(species_id, overrides \\ %{}) do
     Map.merge(
       %{
@@ -357,6 +376,75 @@ defmodule Gallformers.PhenologyTest do
 
       assert Enum.find_index(groups, &(&1 == "Family")) <
                Enum.find_index(groups, &(&1 == "Tribe"))
+    end
+  end
+
+  describe "gall-trait filter" do
+    setup do
+      red = insert_filter_field("color", :color, "test-red")
+      green = insert_filter_field("color", :color, "test-green")
+      ball = insert_filter_field("shape", :shape, "test-ball")
+
+      # red + ball ; red only ; green only — each a gall with a gall_traits row
+      sp_red_ball = create_gall_species("Acraspis redball (agamic)")
+      sp_red = create_gall_species("Acraspis redonly (agamic)")
+      sp_green = create_gall_species("Andricus greeny (agamic)")
+
+      for sp <- [sp_red_ball, sp_red, sp_green], do: insert_gall_traits(sp.id)
+      link_color(sp_red_ball.id, red)
+      link_shape(sp_red_ball.id, ball)
+      link_color(sp_red.id, red)
+      link_color(sp_green.id, green)
+
+      for sp <- [sp_red_ball, sp_red, sp_green],
+          do: {:ok, _} = Phenology.create_observation(valid_attrs(sp.id))
+
+      %{red: red, green: green, ball: ball}
+    end
+
+    test "filters by a single color (OR within facet is trivial here)", ctx do
+      names =
+        Phenology.search_observations(%{color_ids: [ctx.red]})
+        |> Enum.map(& &1.species_name)
+        |> Enum.sort()
+
+      assert names == ["Acraspis redball (agamic)", "Acraspis redonly (agamic)"]
+    end
+
+    test "filters by shape", ctx do
+      results = Phenology.search_observations(%{shape_ids: [ctx.ball]})
+      assert Enum.map(results, & &1.species_name) == ["Acraspis redball (agamic)"]
+    end
+
+    test "multiple facets compose with AND across facets", ctx do
+      # red AND ball → only the species carrying both
+      results = Phenology.search_observations(%{color_ids: [ctx.red], shape_ids: [ctx.ball]})
+      assert Enum.map(results, & &1.species_name) == ["Acraspis redball (agamic)"]
+    end
+
+    test "multiple ids within a facet are OR-ed", ctx do
+      names =
+        Phenology.search_observations(%{color_ids: [ctx.red, ctx.green]})
+        |> Enum.map(& &1.species_name)
+        |> Enum.sort()
+
+      assert names == [
+               "Acraspis redball (agamic)",
+               "Acraspis redonly (agamic)",
+               "Andricus greeny (agamic)"
+             ]
+    end
+
+    test "empty trait lists are ignored (no filter applied)", _ctx do
+      assert Phenology.search_observations(%{color_ids: [], shape_ids: []}) |> length() == 3
+    end
+
+    test "trait filter composes with name search", ctx do
+      results =
+        Phenology.search_observations(%{search: ["Acraspis"], color_ids: [ctx.red]})
+
+      names = Enum.map(results, & &1.species_name) |> Enum.sort()
+      assert names == ["Acraspis redball (agamic)", "Acraspis redonly (agamic)"]
     end
   end
 

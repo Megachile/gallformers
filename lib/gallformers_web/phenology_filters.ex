@@ -54,6 +54,9 @@ defmodule GallformersWeb.PhenologyFilters do
       generation: parse_generation(params["gen"]),
       phenophases: parse_phenophases_url(params),
       taxon_id: parse_taxon_id(params["taxon"]),
+      plant_part_ids: parse_id_list(params["pp"]),
+      color_ids: parse_id_list(params["color"]),
+      shape_ids: parse_id_list(params["shape"]),
       display_mode: parse_display_mode(params["display"]),
       target_lat: parse_target_lat(params["lat"]),
       min_lat: parse_lat_bound(params["min_lat"]),
@@ -75,6 +78,9 @@ defmodule GallformersWeb.PhenologyFilters do
       generation: parse_generation(params["generation"]),
       phenophases: parse_phenophases_form(params["phenophases"]),
       taxon_id: parse_taxon_id(params["taxon"]),
+      plant_part_ids: parse_id_list(params["plant_part_ids"]),
+      color_ids: parse_id_list(params["color_ids"]),
+      shape_ids: parse_id_list(params["shape_ids"]),
       display_mode: parse_display_mode(params["display"]),
       target_lat: parse_target_lat(params["target_lat"]),
       min_lat: parse_lat_bound(params["min_lat"]),
@@ -96,6 +102,9 @@ defmodule GallformersWeb.PhenologyFilters do
     |> maybe_put_gen(filters[:generation])
     |> maybe_put_phen(filters[:phenophases])
     |> maybe_put_taxon(filters[:taxon_id])
+    |> maybe_put_id_list(:pp, filters[:plant_part_ids])
+    |> maybe_put_id_list(:color, filters[:color_ids])
+    |> maybe_put_id_list(:shape, filters[:shape_ids])
     |> maybe_put_display(filters[:display_mode])
     |> maybe_put_lat(filters[:target_lat])
     |> maybe_put_coord(:min_lat, filters[:min_lat])
@@ -232,6 +241,41 @@ defmodule GallformersWeb.PhenologyFilters do
   defp parse_taxon_id(_), do: nil
 
   # ----------------------------------------------------------------------
+  # Trait id lists (plant_part / color / shape)
+  # ----------------------------------------------------------------------
+
+  # A list of positive integer filter-field ids. Accepts a comma-joined URL
+  # string ("1,2") or a form checkbox-group list (["1", "2"]). Unparseable /
+  # non-positive entries are dropped; the result is deduped. Empty = no
+  # filter for that facet.
+  defp parse_id_list(nil), do: []
+  defp parse_id_list(""), do: []
+
+  defp parse_id_list(value) when is_binary(value) do
+    value |> String.split(",") |> parse_id_list()
+  end
+
+  defp parse_id_list(value) when is_list(value) do
+    value
+    |> Enum.map(&parse_positive_int/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp parse_id_list(_), do: []
+
+  defp parse_positive_int(v) when is_integer(v) and v > 0, do: v
+
+  defp parse_positive_int(v) when is_binary(v) do
+    case Integer.parse(String.trim(v)) do
+      {id, ""} when id > 0 -> id
+      _ -> nil
+    end
+  end
+
+  defp parse_positive_int(_), do: nil
+
+  # ----------------------------------------------------------------------
   # Display mode
   # ----------------------------------------------------------------------
 
@@ -332,6 +376,11 @@ defmodule GallformersWeb.PhenologyFilters do
     do: query ++ [taxon: id]
 
   defp maybe_put_taxon(query, _), do: query
+
+  defp maybe_put_id_list(query, key, ids) when is_list(ids) and ids != [],
+    do: query ++ [{key, Enum.join(ids, ",")}]
+
+  defp maybe_put_id_list(query, _key, _), do: query
 
   defp maybe_put_display(query, :predictions), do: query
   defp maybe_put_display(query, :data_table), do: query ++ [display: "table"]

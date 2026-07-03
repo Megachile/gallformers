@@ -57,6 +57,19 @@ defmodule GallformersWeb.PhenologyLiveTest do
     ])
   end
 
+  defp insert_gall_traits(species_id) do
+    Repo.insert_all("gall_traits", [%{species_id: species_id}])
+  end
+
+  defp insert_color(name) do
+    {1, [%{id: id}]} = Repo.insert_all("color", [%{color: name}], returning: [:id])
+    id
+  end
+
+  defp link_color(species_id, color_id) do
+    Repo.insert_all("gall_color", [%{species_id: species_id, color_id: color_id}])
+  end
+
   describe "/phenology base rendering" do
     test "renders the page even with no observations", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/phenology")
@@ -294,6 +307,66 @@ defmodule GallformersWeb.PhenologyLiveTest do
       refute html =~ "Eurosta solidaginis"
       # The selected option is marked selected in the rendered <select>.
       assert html =~ ~r/value="#{cynipidae.id}"[^>]*selected/
+    end
+  end
+
+  describe "/phenology trait filter" do
+    setup do
+      red = insert_color("test-scarlet")
+      green = insert_color("test-chartreuse")
+
+      sp_red = insert_gall("Acraspis reddish (agamic)")
+      sp_green = insert_gall("Andricus greenish (agamic)")
+      insert_gall_traits(sp_red.id)
+      insert_gall_traits(sp_green.id)
+      link_color(sp_red.id, red)
+      link_color(sp_green.id, green)
+      insert_obs(sp_red.id, %{})
+      insert_obs(sp_green.id, %{})
+
+      %{red: red, green: green}
+    end
+
+    test "renders the gall-trait facet checkboxes with shared vocabulary", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/phenology?search=")
+
+      assert html =~ "Gall traits (optional)"
+      assert html =~ "Location on host"
+      assert html =~ "test-scarlet"
+      assert html =~ ~s(name="color_ids[]")
+    end
+
+    test "checking a color narrows the obs to species with that trait", %{
+      conn: conn,
+      red: red
+    } do
+      {:ok, view, _html} = live(conn, ~p"/phenology?search=")
+
+      html =
+        view
+        |> form("form", %{
+          "search" => "",
+          "generation" => "all",
+          "phenophases" => @all_explorer_phenophases,
+          "color_ids" => [to_string(red)]
+        })
+        |> render_change()
+
+      assert html =~ "1 observation"
+      assert html =~ "Acraspis reddish"
+      refute html =~ "Andricus greenish"
+    end
+
+    test "?color=ID seeds the trait filter on mount and checks the box", %{
+      conn: conn,
+      red: red
+    } do
+      {:ok, _view, html} = live(conn, ~p"/phenology?search=&color=#{red}")
+
+      assert html =~ "1 observation"
+      assert html =~ "Acraspis reddish"
+      refute html =~ "Andricus greenish"
+      assert html =~ ~r/name="color_ids\[\]" value="#{red}"[^>]*checked/
     end
   end
 

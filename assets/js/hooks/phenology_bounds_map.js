@@ -64,6 +64,13 @@ export default {
     this._dragStart = null
     this._lastObsVersion = ''
     this._initMap()
+
+    // The map may be mounted inside the collapsed (display:none) advanced
+    // filter panel, where MapLibre sizes its canvas to 0. When the panel is
+    // expanded the LiveView pushes this event so we can pick up the real size.
+    this.handleEvent('phenology:filters-shown', () => {
+      if (this.map) this.map.resize()
+    })
   },
 
   updated() {
@@ -74,10 +81,42 @@ export default {
       return
     }
     this._syncBoxFromAttrs()
+    this._syncTargetLat()
     if (this.el.dataset.obsVersion !== this._lastObsVersion) {
       this._lastObsVersion = this.el.dataset.obsVersion || ''
       this._syncObs()
     }
+  },
+
+  // -------------------------------------------------------------------
+  // Target-latitude reference line (shown in prediction mode)
+  // -------------------------------------------------------------------
+
+  _syncTargetLat() {
+    const src = this.map.getSource('target-lat')
+    if (!src) return
+
+    const shown = this.el.dataset.targetLatShown === 'true'
+    const lat = parseFloat(this.el.dataset.targetLat)
+
+    if (!shown || Number.isNaN(lat)) {
+      src.setData(emptyFeatureCollection())
+      return
+    }
+
+    src.setData({
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          properties: {},
+          geometry: {
+            type: 'LineString',
+            coordinates: [[-180, lat], [-90, lat], [0, lat], [90, lat], [180, lat]],
+          },
+        },
+      ],
+    })
   },
 
   destroyed() {
@@ -105,6 +144,7 @@ export default {
           boundaries: { type: 'vector', url: `pmtiles://${this.tilesUrl}` },
           'user-bbox': { type: 'geojson', data: emptyFeatureCollection() },
           obs: { type: 'geojson', data: emptyFeatureCollection() },
+          'target-lat': { type: 'geojson', data: emptyFeatureCollection() },
         },
         layers: [
           { id: 'background', type: 'background', paint: { 'background-color': '#ADD8E6' } },
@@ -181,6 +221,16 @@ export default {
               'line-width': 2,
             },
           },
+          {
+            id: 'target-lat-line',
+            type: 'line',
+            source: 'target-lat',
+            paint: {
+              'line-color': '#661419',
+              'line-width': 1.5,
+              'line-dasharray': [3, 2],
+            },
+          },
         ],
       },
       center: [0, 20],
@@ -204,6 +254,7 @@ export default {
       this._lastObsVersion = this.el.dataset.obsVersion || ''
       this._syncObs()
       this._syncBoxFromAttrs()
+      this._syncTargetLat()
       this._wireDrawing()
     })
   },

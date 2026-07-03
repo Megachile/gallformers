@@ -39,6 +39,10 @@ defmodule GallformersWeb.PhenologyLive do
         # Gall-trait checkbox options (location on host / color / shape).
         # Loaded in the live mount too.
         trait_options: %{plant_parts: [], colors: [], shapes: []},
+        # Advanced filters (everything past the name search) start collapsed —
+        # most visitors just search by name. The panel is CSS-hidden, not
+        # unrendered, so its inputs still submit (phenophase defaults etc.).
+        show_filters: false,
         filters: filters,
         observations: [],
         chart_points_json: "[]",
@@ -115,6 +119,17 @@ defmodule GallformersWeb.PhenologyLive do
         replace: true
       )
 
+    {:noreply, socket}
+  end
+
+  # Expand / collapse the advanced filter panel. On expand we tell the
+  # bounds map to resize: it was mounted inside a `display:none` container
+  # (so MapLibre sized its canvas to 0) and won't otherwise notice it's now
+  # visible.
+  def handle_event("toggle_filters", _params, socket) do
+    show = not socket.assigns.show_filters
+    socket = assign(socket, show_filters: show)
+    socket = if show, do: push_event(socket, "phenology:filters-shown", %{}), else: socket
     {:noreply, socket}
   end
 
@@ -306,439 +321,461 @@ defmodule GallformersWeb.PhenologyLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="phenology-page" style="max-width: 1200px; margin: 0 auto; padding: 16px;">
-      <h1 style="margin: 0 0 4px 0;">Phenology</h1>
-      <p style="color: #666; margin-top: 0;">
-        Day-of-year × latitude scatter for gall species' observations.
-        Colored by generation (blue&nbsp;= sexual, red&nbsp;= agamic, gray&nbsp;= unknown).
-      </p>
+    <Layouts.app flash={@flash} current_user={@current_user}>
+      <div id="phenology-container" class="max-w-6xl mx-auto">
+        <h1 class="text-3xl font-semibold text-gf-maroon mb-1">Phenology</h1>
+        <p class="text-gray-600 mb-4">
+          Day-of-year × latitude scatter for gall species' observations.
+          Colored by generation (blue&nbsp;= sexual, red&nbsp;= agamic, gray&nbsp;= unknown).
+        </p>
 
-      <form
-        phx-change="update_filters"
-        phx-submit="update_filters"
-        style="margin: 12px 0; display: grid; grid-template-columns: 1fr; gap: 10px;
-               padding: 10px 12px; background: #f5f3ec; border: 1px solid #ddd;
-               border-radius: 4px;"
-      >
-        <div>
-          <label for="search" style="font-weight: 600; display: block; margin-bottom: 4px;">
-            Search by genus, species, or gallformers code
-          </label>
-          <input
-            type="text"
-            name="search"
-            id="search"
-            value={search_value(@filters)}
-            placeholder="e.g. Acraspis, Aulacidea"
-            phx-debounce="300"
-            style="width: 100%; padding: 5px 8px; border: 1px solid #ccc; border-radius: 3px;"
-          />
-          <span style="display: block; color: #666; font-size: 11px; margin-top: 2px;">
-            Comma-separated for multiple terms; matches any fragment in the species name.
-          </span>
-        </div>
-
-        <div>
-          <label for="taxon" style="font-weight: 600; display: block; margin-bottom: 4px;">
-            Taxon (family / tribe)
-          </label>
-          <select
-            name="taxon"
-            id="taxon"
-            style="max-width: 100%; padding: 5px 8px; border: 1px solid #ccc; border-radius: 3px;"
-          >
-            <option value="" selected={is_nil(@filters[:taxon_id])}>All taxa</option>
-            <optgroup :for={{group, opts} <- grouped_taxa(@taxon_options)} label={group}>
-              <option
-                :for={t <- opts}
-                value={t.id}
-                selected={@filters[:taxon_id] == t.id}
-              >
-                {t.name} ({t.n_species})
-              </option>
-            </optgroup>
-          </select>
-          <span style="display: block; color: #666; font-size: 11px; margin-top: 2px;">
-            Restricts to species under the chosen family or tribe. For a single
-            genus, use the search box above. Count is species with phenology data.
-          </span>
-        </div>
-
-        <div style="display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap;">
-          <fieldset style="border: none; padding: 0; margin: 0;">
-            <legend style="font-weight: 600; padding: 0; margin-bottom: 4px;">Generation</legend>
-            <%= for {value, label} <- [{"all", "All"}, {"sexgen", "Sexual"}, {"agamic", "Agamic"}] do %>
-              <label style="margin-right: 12px; font-size: 13px;">
-                <input
-                  type="radio"
-                  name="generation"
-                  value={value}
-                  checked={gen_value(@filters) == value}
-                /> {label}
-              </label>
-            <% end %>
-          </fieldset>
-
-          <fieldset style="border: none; padding: 0; margin: 0; flex: 1; min-width: 280px;">
-            <legend style="font-weight: 600; padding: 0; margin-bottom: 4px;">Phenophase</legend>
-            <div style="display: flex; flex-wrap: wrap; gap: 4px 12px;">
-              <%= for p <- @explorer_phenophases do %>
-                <label style="font-size: 13px;">
-                  <input
-                    type="checkbox"
-                    name="phenophases[]"
-                    value={p}
-                    checked={p in @filters.phenophases}
-                  /> {p}
-                </label>
-              <% end %>
-            </div>
-            <span style="display: block; color: #666; font-size: 11px; margin-top: 2px;">
-              Uncheck all to clear filter (no observations will be displayed).
-            </span>
-          </fieldset>
-        </div>
-
-        <fieldset style="border: none; padding: 0; margin: 0;">
-          <legend style="font-weight: 600; padding: 0; margin-bottom: 4px;">
-            Gall traits (optional)
-          </legend>
-          <div style="display: flex; gap: 18px; flex-wrap: wrap;">
-            <%= for {facet_label, facet_key, form_name, selected} <- [
-                  {"Location on host", :plant_parts, "plant_part_ids", @filters[:plant_part_ids]},
-                  {"Color", :colors, "color_ids", @filters[:color_ids]},
-                  {"Shape", :shapes, "shape_ids", @filters[:shape_ids]}
-                ] do %>
-              <div style="min-width: 200px;">
-                <div style="font-weight: 600; font-size: 12px; margin-bottom: 2px;">
-                  {facet_label}
-                </div>
-                <div style="display: flex; flex-wrap: wrap; gap: 2px 10px;">
-                  <label :for={opt <- @trait_options[facet_key]} style="font-size: 13px;">
-                    <input
-                      type="checkbox"
-                      name={form_name <> "[]"}
-                      value={opt.id}
-                      checked={opt.id in (selected || [])}
-                    /> {opt.label}
-                  </label>
-                </div>
-              </div>
-            <% end %>
-          </div>
-          <span style="display: block; color: #666; font-size: 11px; margin-top: 2px;">
-            Filters to galls with the selected traits (within a trait, any match;
-            across traits, all must match).
-          </span>
-        </fieldset>
-
-        <fieldset style="border: none; padding: 0; margin: 0;">
-          <legend style="font-weight: 600; padding: 0; margin-bottom: 4px;">
-            Observation coordinates (optional)
-          </legend>
-          <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap; font-size: 13px;">
-            <span style="display: inline-flex; gap: 6px; align-items: center;">
-              <span>Lat</span>
-              <input
-                type="number"
-                name="min_lat"
-                value={format_coord_bound(@filters[:min_lat])}
-                step="0.1"
-                min="-90"
-                max="90"
-                phx-debounce="400"
-                aria-label="Minimum latitude"
-                style="width: 72px; padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px;"
-              />
-              <span>to</span>
-              <input
-                type="number"
-                name="max_lat"
-                value={format_coord_bound(@filters[:max_lat])}
-                step="0.1"
-                min="-90"
-                max="90"
-                phx-debounce="400"
-                aria-label="Maximum latitude"
-                style="width: 72px; padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px;"
-              />
-            </span>
-            <span style="display: inline-flex; gap: 6px; align-items: center;">
-              <span>Lng</span>
-              <input
-                type="number"
-                name="min_lng"
-                value={format_coord_bound(@filters[:min_lng])}
-                step="0.1"
-                min="-180"
-                max="180"
-                phx-debounce="400"
-                aria-label="Minimum longitude"
-                style="width: 78px; padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px;"
-              />
-              <span>to</span>
-              <input
-                type="number"
-                name="max_lng"
-                value={format_coord_bound(@filters[:max_lng])}
-                step="0.1"
-                min="-180"
-                max="180"
-                phx-debounce="400"
-                aria-label="Maximum longitude"
-                style="width: 78px; padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px;"
-              />
-            </span>
-            <span style="color: #666; font-size: 11px;">
-              Drops species with no observations in the box. Leave blank for no filter.
-            </span>
-            <button
-              :if={
-                @filters[:min_lat] || @filters[:max_lat] ||
-                  @filters[:min_lng] || @filters[:max_lng]
-              }
-              type="button"
-              phx-click="clear_coord_bounds"
-              style="font-size: 11px; padding: 1px 8px; border: 1px solid #ccc;
-                     background: #fff; border-radius: 3px; cursor: pointer;"
-            >
-              Clear box
-            </button>
-          </div>
-
-          <%!-- MapLibre widget under the inputs. Shift+drag draws the box;
-                normal drag still pans. The hook is the canonical writer of
-                the form input values, and reads the host's data-* attrs to
-                hydrate the rectangle on URL deep-link or typed-input
-                changes. phx-update="ignore" so the LV doesn't recreate the
-                canvas on every diff. --%>
-          <div
-            id="phenology-bounds-map"
-            phx-hook="PhenologyBoundsMap"
-            phx-update="ignore"
-            data-min-lat={format_coord_bound(@filters[:min_lat])}
-            data-max-lat={format_coord_bound(@filters[:max_lat])}
-            data-min-lng={format_coord_bound(@filters[:min_lng])}
-            data-max-lng={format_coord_bound(@filters[:max_lng])}
-            data-obs-version={@obs_version}
-            data-tiles-url={tiles_url()}
-            style="margin-top: 8px; height: 280px; border: 1px solid #ddd;
-                   border-radius: 4px; background: #ADD8E6;"
-          >
-          </div>
-          <span style="display: block; color: #666; font-size: 11px; margin-top: 2px;">
-            Shift + drag on the map to draw a bounding box. Drag without shift
-            to pan; scroll to zoom.
-          </span>
-        </fieldset>
-
-        <div style="display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap;">
-          <fieldset style="border: none; padding: 0; margin: 0;">
-            <legend style="font-weight: 600; padding: 0; margin-bottom: 4px;">
-              Show below chart
-            </legend>
-            <%= for {value, label} <- [{"predictions", "Predictions"}, {"table", "Data table"}, {"species", "Species list"}] do %>
-              <label style="margin-right: 12px; font-size: 13px;">
-                <input
-                  type="radio"
-                  name="display"
-                  value={value}
-                  checked={display_value(@filters) == value}
-                /> {label}
-              </label>
-            <% end %>
-          </fieldset>
-
+        <form
+          id="phenology-filters"
+          phx-change="update_filters"
+          phx-submit="update_filters"
+          class="mb-4 grid gap-4 rounded-lg border border-gray-200 bg-gray-50 p-4"
+        >
           <div>
-            <label
-              for="target_lat"
-              style="font-weight: 600; display: block; margin-bottom: 4px;"
-            >
-              Predict at latitude
+            <label for="search" class="block text-sm font-semibold text-gray-700 mb-1">
+              Search by genus, species, or gallformers code
             </label>
             <input
-              type="number"
-              name="target_lat"
-              id="target_lat"
-              value={format_target_lat(@filters[:target_lat])}
-              step="0.5"
-              min="-90"
-              max="90"
-              phx-debounce="400"
-              style="width: 80px; padding: 4px 6px; border: 1px solid #ccc; border-radius: 3px;"
+              type="text"
+              name="search"
+              id="search"
+              class="gf-input"
+              value={search_value(@filters)}
+              placeholder="e.g. Acraspis, Aulacidea"
+              phx-debounce="300"
             />
-            <span style="margin-left: 6px; color: #666; font-size: 12px;">
-              °N (negative = °S)
+            <span class="mt-1 block text-xs text-gray-500">
+              Comma-separated for multiple terms; matches any fragment in the species name.
             </span>
           </div>
-        </div>
-      </form>
 
-      <%!-- Chrome bar. Three things hang off the brush state:
-              - "· N in brush selection" count
-              - Clear-selection button
-              - Download CSV link's href (brush bounds get appended)
-            None of these can cost a per-brush LV roundtrip, so they're
-            all JS-driven via the phenologyState pub/sub.
+          <div class="flex flex-wrap items-start gap-x-8 gap-y-3">
+            <fieldset class="border-0 p-0 m-0">
+              <legend class="text-sm font-semibold text-gray-700 mb-1">Generation</legend>
+              <%= for {value, label} <- [{"all", "All"}, {"sexgen", "Sexual"}, {"agamic", "Agamic"}] do %>
+                <label class="mr-3 text-sm text-gray-700">
+                  <input
+                    type="radio"
+                    class="mr-1 align-middle accent-gf-maroon"
+                    name="generation"
+                    value={value}
+                    checked={gen_value(@filters) == value}
+                  /> {label}
+                </label>
+              <% end %>
+            </fieldset>
 
-            Two separate hooks because the CSV link's existence depends
-            on server state (display_mode + obs presence) and so must be
-            server-rendered with normal LV diffing. The brush count +
-            Clear button are pure client state (nothing to render until
-            JS publishes a brush) and live in a `phx-update="ignore"`
-            host the hook owns. --%>
-      <div style="font-size: 13px; color: #444; margin: 8px 0; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-        <span :if={not @initialized?} style="color: #888; font-style: italic;">
-          Loading observations…
-        </span>
-        <span :if={@initialized?}>
-          {length(@observations)} observation{if length(@observations) != 1, do: "s"} across {species_count(
-            @observations
-          )} species
-        </span>
-        <div
-          id="phenology-brush-chrome"
-          phx-hook="PhenologyChrome"
-          phx-update="ignore"
-          style="display: contents;"
-        >
-        </div>
-        <.link
-          :if={
-            @filters.display_mode in [:data_table, :species_list] and
-              @observations != []
-          }
-          id="phenology-csv-link"
-          phx-hook="PhenologyCsvLink"
-          href={export_path(@filters, nil)}
-          data-href-base={export_path(@filters, nil)}
-          style="font-size: 12px; color: #2b5e3a; text-decoration: underline;"
-        >
-          Download CSV
-        </.link>
-      </div>
-
-      <%= cond do %>
-        <% not @initialized? -> %>
-          <div style="padding: 40px; text-align: center; color: #888;
-                      border: 1px solid #ddd; background: #fff; border-radius: 4px;">
-            Loading observations…
+            <fieldset class="border-0 p-0 m-0 flex-1 min-w-[280px]">
+              <legend class="text-sm font-semibold text-gray-700 mb-1">Phenophase</legend>
+              <div class="flex flex-wrap gap-x-3 gap-y-1">
+                <%= for p <- @explorer_phenophases do %>
+                  <label class="text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      class="gf-checkbox"
+                      name="phenophases[]"
+                      value={p}
+                      checked={p in @filters.phenophases}
+                    /> {p}
+                  </label>
+                <% end %>
+              </div>
+              <span class="mt-1 block text-xs text-gray-500">
+                Uncheck all to clear filter (no observations will be displayed).
+              </span>
+            </fieldset>
           </div>
-        <% @observations == [] -> %>
-          <div style="padding: 40px; text-align: center; color: #888;
-                      border: 1px solid #ddd; background: #fff; border-radius: 4px;">
-            No observations match these filters.
+
+          <div class="flex flex-wrap items-start gap-x-8 gap-y-3">
+            <fieldset class="border-0 p-0 m-0">
+              <legend class="text-sm font-semibold text-gray-700 mb-1">
+                Show below chart
+              </legend>
+              <%= for {value, label} <- [{"predictions", "Predictions"}, {"table", "Data table"}, {"species", "Species list"}] do %>
+                <label class="mr-3 text-sm text-gray-700">
+                  <input
+                    type="radio"
+                    class="mr-1 align-middle accent-gf-maroon"
+                    name="display"
+                    value={value}
+                    checked={display_value(@filters) == value}
+                  /> {label}
+                </label>
+              <% end %>
+            </fieldset>
+
+            <div>
+              <label for="target_lat" class="block text-sm font-semibold text-gray-700 mb-1">
+                Predict at latitude
+              </label>
+              <input
+                type="number"
+                name="target_lat"
+                id="target_lat"
+                value={format_target_lat(@filters[:target_lat])}
+                step="0.5"
+                min="-90"
+                max="90"
+                phx-debounce="400"
+                class="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
+              />
+              <span class="ml-1.5 text-xs text-gray-500">
+                °N (negative = °S)
+              </span>
+            </div>
           </div>
-        <% true -> %>
+
+          <button
+            type="button"
+            id="toggle-filters"
+            phx-click="toggle_filters"
+            class="justify-self-start inline-flex items-center gap-1 text-sm font-medium text-gf-maroon hover:underline"
+            aria-expanded={to_string(@show_filters)}
+            aria-controls="phenology-advanced-filters"
+          >
+            {if @show_filters, do: "Fewer filters", else: "More filters"}
+            <.icon
+              name="ph-caret-down"
+              class={["h-4 w-4 transition-transform", @show_filters && "rotate-180"]}
+            />
+          </button>
+
           <div
-            id="phenology-chart"
-            phx-hook="PhenologyChart"
+            id="phenology-advanced-filters"
+            class={["grid gap-4", not @show_filters && "hidden"]}
+          >
+            <div>
+              <label for="taxon" class="block text-sm font-semibold text-gray-700 mb-1">
+                Taxon (family / tribe)
+              </label>
+              <select name="taxon" id="taxon" class="gf-select">
+                <option value="" selected={is_nil(@filters[:taxon_id])}>All taxa</option>
+                <optgroup :for={{group, opts} <- grouped_taxa(@taxon_options)} label={group}>
+                  <option
+                    :for={t <- opts}
+                    value={t.id}
+                    selected={@filters[:taxon_id] == t.id}
+                  >
+                    {t.name} ({t.n_species})
+                  </option>
+                </optgroup>
+              </select>
+              <span class="mt-1 block text-xs text-gray-500">
+                Restricts to species under the chosen family or tribe. For a single
+                genus, use the search box above. Count is species with phenology data.
+              </span>
+            </div>
+
+            <fieldset class="border-0 p-0 m-0">
+              <legend class="text-sm font-semibold text-gray-700 mb-1">
+                Gall traits (optional)
+              </legend>
+              <div class="flex flex-wrap gap-6">
+                <%= for {facet_label, facet_key, form_name, selected} <- [
+                    {"Location on host", :plant_parts, "plant_part_ids", @filters[:plant_part_ids]},
+                    {"Color", :colors, "color_ids", @filters[:color_ids]},
+                    {"Shape", :shapes, "shape_ids", @filters[:shape_ids]}
+                  ] do %>
+                  <div class="min-w-[200px]">
+                    <div class="text-xs font-semibold text-gray-600 mb-0.5">
+                      {facet_label}
+                    </div>
+                    <div class="flex flex-wrap gap-x-2.5 gap-y-0.5">
+                      <label :for={opt <- @trait_options[facet_key]} class="text-sm text-gray-700">
+                        <input
+                          type="checkbox"
+                          class="gf-checkbox"
+                          name={form_name <> "[]"}
+                          value={opt.id}
+                          checked={opt.id in (selected || [])}
+                        /> {opt.label}
+                      </label>
+                    </div>
+                  </div>
+                <% end %>
+              </div>
+              <span class="mt-1 block text-xs text-gray-500">
+                Filters to galls with the selected traits (within a trait, any match;
+                across traits, all must match).
+              </span>
+            </fieldset>
+
+            <fieldset class="border-0 p-0 m-0">
+              <legend class="text-sm font-semibold text-gray-700 mb-1">
+                Observation coordinates (optional)
+              </legend>
+              <div class="flex flex-wrap items-center gap-4 text-sm text-gray-700">
+                <span class="inline-flex items-center gap-1.5">
+                  <span>Lat</span>
+                  <input
+                    type="number"
+                    name="min_lat"
+                    value={format_coord_bound(@filters[:min_lat])}
+                    step="0.1"
+                    min="-90"
+                    max="90"
+                    phx-debounce="400"
+                    aria-label="Minimum latitude"
+                    class="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
+                  />
+                  <span>to</span>
+                  <input
+                    type="number"
+                    name="max_lat"
+                    value={format_coord_bound(@filters[:max_lat])}
+                    step="0.1"
+                    min="-90"
+                    max="90"
+                    phx-debounce="400"
+                    aria-label="Maximum latitude"
+                    class="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
+                  />
+                </span>
+                <span class="inline-flex items-center gap-1.5">
+                  <span>Lng</span>
+                  <input
+                    type="number"
+                    name="min_lng"
+                    value={format_coord_bound(@filters[:min_lng])}
+                    step="0.1"
+                    min="-180"
+                    max="180"
+                    phx-debounce="400"
+                    aria-label="Minimum longitude"
+                    class="w-24 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
+                  />
+                  <span>to</span>
+                  <input
+                    type="number"
+                    name="max_lng"
+                    value={format_coord_bound(@filters[:max_lng])}
+                    step="0.1"
+                    min="-180"
+                    max="180"
+                    phx-debounce="400"
+                    aria-label="Maximum longitude"
+                    class="w-24 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
+                  />
+                </span>
+                <span class="text-xs text-gray-500">
+                  Drops species with no observations in the box. Leave blank for no filter.
+                </span>
+                <button
+                  :if={
+                    @filters[:min_lat] || @filters[:max_lat] ||
+                      @filters[:min_lng] || @filters[:max_lng]
+                  }
+                  type="button"
+                  phx-click="clear_coord_bounds"
+                  class="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Clear box
+                </button>
+              </div>
+
+              <%!-- MapLibre widget under the inputs. Shift+drag draws the box;
+                  normal drag still pans. The hook is the canonical writer of
+                  the form input values, and reads the host's data-* attrs to
+                  hydrate the rectangle on URL deep-link or typed-input
+                  changes. phx-update="ignore" so the LV doesn't recreate the
+                  canvas on every diff. --%>
+              <div
+                id="phenology-bounds-map"
+                phx-hook="PhenologyBoundsMap"
+                phx-update="ignore"
+                data-min-lat={format_coord_bound(@filters[:min_lat])}
+                data-max-lat={format_coord_bound(@filters[:max_lat])}
+                data-min-lng={format_coord_bound(@filters[:min_lng])}
+                data-max-lng={format_coord_bound(@filters[:max_lng])}
+                data-obs-version={@obs_version}
+                data-target-lat={
+                  to_string(@filters[:target_lat] || PhenologyFilters.default_target_lat())
+                }
+                data-target-lat-shown={to_string(@filters.display_mode == :predictions)}
+                data-tiles-url={tiles_url()}
+                class="mt-2 h-[280px] rounded-md border border-gray-200 bg-gf-sky-blue"
+              >
+              </div>
+              <span class="mt-1 block text-xs text-gray-500">
+                Shift + drag on the map to draw a bounding box. Drag without shift
+                to pan; scroll to zoom.
+              </span>
+            </fieldset>
+          </div>
+          <%!-- /phenology-advanced-filters --%>
+        </form>
+
+        <%!-- Chrome bar. Three things hang off the brush state:
+                - "· N in brush selection" count
+                - Clear-selection button
+                - Download CSV link's href (brush bounds get appended)
+              None of these can cost a per-brush LV roundtrip, so they're
+              all JS-driven via the phenologyState pub/sub.
+
+              Two separate hooks because the CSV link's existence depends
+              on server state (display_mode + obs presence) and so must be
+              server-rendered with normal LV diffing. The brush count +
+              Clear button are pure client state (nothing to render until
+              JS publishes a brush) and live in a `phx-update="ignore"`
+              host the hook owns. --%>
+        <div class="my-2 flex flex-wrap items-center gap-3 text-sm text-gray-600">
+          <span :if={not @initialized?} class="italic text-gray-400">
+            Loading observations…
+          </span>
+          <span :if={@initialized?}>
+            {length(@observations)} observation{if length(@observations) != 1, do: "s"} across {species_count(
+              @observations
+            )} species
+          </span>
+          <div
+            id="phenology-brush-chrome"
+            phx-hook="PhenologyChrome"
             phx-update="ignore"
-            data-points={@chart_points_json}
-            style="height: 540px; border: 1px solid #ddd; background: #fff;
-                 border-radius: 4px; position: relative;"
+            class="contents"
           >
           </div>
-          <p style="margin: 4px 0 0; color: #666; font-size: 11px;">
-            Drag on the chart to brush-select observations into the table /
-            species list below. Click outside the brush to clear.
-          </p>
+        </div>
 
-          <%= cond do %>
-            <% @filters.display_mode == :data_table -> %>
-              <div
-                id="phenology-table-host"
-                phx-hook="PhenologyTable"
-                phx-update="ignore"
-                data-mode="table"
-                data-version={@obs_version}
-                style="margin-top: 12px; max-height: 60vh; overflow: auto; border: 1px solid #ddd; background: #fff; border-radius: 4px;"
+        <%= cond do %>
+          <% not @initialized? -> %>
+            <div class="rounded-lg border border-gray-200 bg-white p-10 text-center text-gray-400">
+              Loading observations…
+            </div>
+          <% @observations == [] -> %>
+            <div class="rounded-lg border border-gray-200 bg-white p-10 text-center text-gray-400">
+              No observations match these filters.
+            </div>
+          <% true -> %>
+            <div
+              id="phenology-chart"
+              phx-hook="PhenologyChart"
+              phx-update="ignore"
+              data-points={@chart_points_json}
+              class="relative h-[540px] rounded-lg border border-gray-200 bg-white"
+            >
+            </div>
+            <p class="mt-1 text-xs text-gray-500">
+              Drag on the chart to brush-select observations into the table /
+              species list below. Click outside the brush to clear.
+            </p>
+
+            <div
+              :if={@filters.display_mode in [:data_table, :species_list] and @observations != []}
+              class="mt-3 flex justify-end"
+            >
+              <.link
+                id="phenology-csv-link"
+                phx-hook="PhenologyCsvLink"
+                href={export_path(@filters, nil)}
+                data-href-base={export_path(@filters, nil)}
+                class="text-xs text-gf-maroon underline"
               >
-                <%!-- SSR / no-JS fallback only. The hook owns this DOM
-                      after mount and filters by brush in JS — see
-                      assets/js/hooks/phenology_table.js. --%>
-                <.table
-                  id="phenology-obs-table"
-                  rows={@observations}
-                  variant="compact"
-                >
-                  <:col :let={o} label="Species">{o.species_name}</:col>
-                  <:col :let={o} label="Phenophase">{o.phenophase || "—"}</:col>
-                  <:col :let={o} label="Lifestage">{o.lifestage || "—"}</:col>
-                  <:col :let={o} label="Viability">{o.viability || "—"}</:col>
-                  <:col :let={o} label="Host">{o.host_species_name || "—"}</:col>
-                  <:col :let={o} label="DOY">{o.doy}</:col>
-                  <:col :let={o} label="Date">{format_obs_date(o.date)}</:col>
-                  <:col :let={o} label="Lat">{format_coord(o.latitude)}</:col>
-                  <:col :let={o} label="Lng">{format_coord(o.longitude)}</:col>
-                  <:col :let={o} label="Source">
-                    <%= if o.source_url do %>
-                      <a href={o.source_url} target="_blank" rel="noopener">link</a>
-                    <% else %>
-                      —
-                    <% end %>
-                  </:col>
-                  <:col :let={o} label="Page">
-                    <%= if o.page_url do %>
-                      <a href={o.page_url} target="_blank" rel="noopener">link</a>
-                    <% else %>
-                      —
-                    <% end %>
-                  </:col>
-                </.table>
-              </div>
-            <% @filters.display_mode == :species_list -> %>
-              <div
-                id="phenology-table-host"
-                phx-hook="PhenologyTable"
-                phx-update="ignore"
-                data-mode="species"
-                data-version={@obs_version}
-                style="margin-top: 12px; max-height: 60vh; overflow: auto; border: 1px solid #ddd; background: #fff; border-radius: 4px;"
-              >
-                <%!-- SSR / no-JS fallback only — see comment on the
-                      obs-table host above. --%>
-                <.table
-                  id="phenology-species-table"
-                  rows={species_rows(@observations)}
-                  variant="compact"
-                >
-                  <:col :let={row} label="Species">
-                    <.link href={~p"/gall/#{row.species_id}"}>{row.name}</.link>
-                  </:col>
-                  <:col :let={row} label="Observations">{row.n_obs}</:col>
-                </.table>
-              </div>
-            <% true -> %>
-              <%= if @predictions != [] do %>
+                Download CSV
+              </.link>
+            </div>
+
+            <%= cond do %>
+              <% @filters.display_mode == :data_table -> %>
                 <div
-                  id="phenology-predictions"
-                  style="margin-top: 12px; padding: 10px 12px; background: #f5f3ec;
-                       border: 1px solid #ddd; border-radius: 4px; font-size: 13px;"
+                  id="phenology-table-host"
+                  phx-hook="PhenologyTable"
+                  phx-update="ignore"
+                  data-mode="table"
+                  data-version={@obs_version}
+                  class="mt-3 max-h-[60vh] overflow-auto rounded-lg border border-gray-200 bg-white"
                 >
-                  <div style="font-weight: 600; margin-bottom: 6px;">
-                    Predicted windows at {format_target_lat(@filters[:target_lat])}°{lat_hemisphere(
-                      @filters[:target_lat]
-                    )}
-                  </div>
-                  <ul style="margin: 0; padding-left: 18px;">
-                    <li :for={p <- @predictions} style="margin-bottom: 2px;">
-                      {prediction_sentence(p)}
-                    </li>
-                  </ul>
-                  <span style="display: block; color: #666; font-size: 11px; margin-top: 4px;">
-                    Based on the seasind IQR of matched observations, back-projected
-                    to your latitude. Predictions are NH-temperate-calibrated — see
-                    <a href="https://github.com/Megachile/gallformers/issues/1">
-                      issue #1
-                    </a>
-                    for the SH validation roadmap.
-                  </span>
+                  <%!-- SSR / no-JS fallback only. The hook owns this DOM
+                        after mount and filters by brush in JS — see
+                        assets/js/hooks/phenology_table.js. --%>
+                  <.table
+                    id="phenology-obs-table"
+                    rows={@observations}
+                    variant="compact"
+                  >
+                    <:col :let={o} label="Species">{o.species_name}</:col>
+                    <:col :let={o} label="Phenophase">{o.phenophase || "—"}</:col>
+                    <:col :let={o} label="Lifestage">{o.lifestage || "—"}</:col>
+                    <:col :let={o} label="Viability">{o.viability || "—"}</:col>
+                    <:col :let={o} label="Host">{o.host_species_name || "—"}</:col>
+                    <:col :let={o} label="DOY">{o.doy}</:col>
+                    <:col :let={o} label="Date">{format_obs_date(o.date)}</:col>
+                    <:col :let={o} label="Lat">{format_coord(o.latitude)}</:col>
+                    <:col :let={o} label="Lng">{format_coord(o.longitude)}</:col>
+                    <:col :let={o} label="Source">
+                      <%= if o.source_url do %>
+                        <a href={o.source_url} target="_blank" rel="noopener">link</a>
+                      <% else %>
+                        —
+                      <% end %>
+                    </:col>
+                    <:col :let={o} label="Page">
+                      <%= if o.page_url do %>
+                        <a href={o.page_url} target="_blank" rel="noopener">link</a>
+                      <% else %>
+                        —
+                      <% end %>
+                    </:col>
+                  </.table>
                 </div>
-              <% end %>
-          <% end %>
-      <% end %>
-    </div>
+              <% @filters.display_mode == :species_list -> %>
+                <div
+                  id="phenology-table-host"
+                  phx-hook="PhenologyTable"
+                  phx-update="ignore"
+                  data-mode="species"
+                  data-version={@obs_version}
+                  class="mt-3 max-h-[60vh] overflow-auto rounded-lg border border-gray-200 bg-white"
+                >
+                  <%!-- SSR / no-JS fallback only — see comment on the
+                        obs-table host above. --%>
+                  <.table
+                    id="phenology-species-table"
+                    rows={species_rows(@observations)}
+                    variant="compact"
+                  >
+                    <:col :let={row} label="Species">
+                      <.link href={~p"/gall/#{row.species_id}"}>{row.name}</.link>
+                    </:col>
+                    <:col :let={row} label="Observations">{row.n_obs}</:col>
+                  </.table>
+                </div>
+              <% true -> %>
+                <%= if @predictions != [] do %>
+                  <div
+                    id="phenology-predictions"
+                    class="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm"
+                  >
+                    <div class="font-semibold text-gray-800 mb-1.5">
+                      Predicted windows at {format_target_lat(@filters[:target_lat])}°{lat_hemisphere(
+                        @filters[:target_lat]
+                      )}
+                    </div>
+                    <ul class="list-disc pl-5 space-y-0.5">
+                      <li :for={p <- @predictions}>
+                        {prediction_sentence(p)}
+                      </li>
+                    </ul>
+                    <span class="mt-1 block text-xs text-gray-500">
+                      Based on the seasind IQR of matched observations, back-projected
+                      to your latitude. Predictions are NH-temperate-calibrated — see
+                      <a
+                        href="https://github.com/Megachile/gallformers/issues/1"
+                        class="text-gf-maroon underline"
+                      >
+                        issue #1
+                      </a>
+                      for the SH validation roadmap.
+                    </span>
+                  </div>
+                <% end %>
+            <% end %>
+        <% end %>
+      </div>
+    </Layouts.app>
     """
   end
 

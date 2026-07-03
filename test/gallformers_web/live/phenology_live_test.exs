@@ -135,6 +135,21 @@ defmodule GallformersWeb.PhenologyLiveTest do
       {:ok, view, _html} = live(conn, ~p"/phenology")
       assert page_title(view) =~ "Phenology"
     end
+
+    test "advanced filters are collapsed by default and toggle open", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/phenology")
+
+      # Collapsed: the advanced panel carries the `hidden` class and the
+      # toggle invites expansion. The name-search box is always visible.
+      assert html =~ ~s(id="search")
+      assert html =~ "More filters"
+      assert html =~ ~r/id="phenology-advanced-filters"[^>]*class="[^"]*hidden/
+
+      # Toggling flips the label (and drops the hidden class).
+      html = view |> element("#toggle-filters") |> render_click()
+      assert html =~ "Fewer filters"
+      refute html =~ ~r/id="phenology-advanced-filters"[^>]*class="[^"]*hidden/
+    end
   end
 
   describe "/phenology filters" do
@@ -156,7 +171,7 @@ defmodule GallformersWeb.PhenologyLiveTest do
 
       html =
         view
-        |> form("form", %{
+        |> form("#phenology-filters", %{
           "search" => "Acraspis",
           "generation" => "all",
           "phenophases" => @all_explorer_phenophases
@@ -174,7 +189,7 @@ defmodule GallformersWeb.PhenologyLiveTest do
 
       html =
         view
-        |> form("form", %{
+        |> form("#phenology-filters", %{
           "search" => "Acraspis, Aulacidea",
           "generation" => "all",
           "phenophases" => @all_explorer_phenophases
@@ -192,7 +207,7 @@ defmodule GallformersWeb.PhenologyLiveTest do
 
       html =
         view
-        |> form("form", %{
+        |> form("#phenology-filters", %{
           "search" => "",
           "generation" => "sexgen",
           "phenophases" => @all_explorer_phenophases
@@ -209,7 +224,7 @@ defmodule GallformersWeb.PhenologyLiveTest do
 
       html =
         view
-        |> form("form", %{
+        |> form("#phenology-filters", %{
           "search" => "",
           "generation" => "all",
           "phenophases" => ["developing"]
@@ -275,7 +290,7 @@ defmodule GallformersWeb.PhenologyLiveTest do
       # Baseline: both species visible with no taxon filter.
       html =
         view
-        |> form("form", %{
+        |> form("#phenology-filters", %{
           "search" => "",
           "generation" => "all",
           "phenophases" => @all_explorer_phenophases
@@ -286,7 +301,7 @@ defmodule GallformersWeb.PhenologyLiveTest do
 
       html =
         view
-        |> form("form", %{
+        |> form("#phenology-filters", %{
           "search" => "",
           "generation" => "all",
           "phenophases" => @all_explorer_phenophases,
@@ -344,7 +359,7 @@ defmodule GallformersWeb.PhenologyLiveTest do
 
       html =
         view
-        |> form("form", %{
+        |> form("#phenology-filters", %{
           "search" => "",
           "generation" => "all",
           "phenophases" => @all_explorer_phenophases,

@@ -136,6 +136,30 @@ defmodule GallformersWeb.PhenologyLiveTest do
       assert page_title(view) =~ "Phenology"
     end
 
+    test "range-selection lens inputs render in table mode", %{conn: conn} do
+      sp = insert_gall("Acraspis tester (agamic)")
+      insert_obs(sp.id, %{})
+
+      {:ok, _view, html} = live(conn, ~p"/phenology?search=&display=table")
+
+      # The DOY + season-index range inputs (display-only selection lens)
+      # and their hook host are present alongside the table.
+      assert html =~ ~s(phx-hook="PhenologyRangeSelect")
+      assert html =~ ~s(data-range="doy_min")
+      assert html =~ ~s(data-range="doy_max")
+      assert html =~ ~s(data-range="seasind_min")
+      assert html =~ ~s(data-range="seasind_max")
+      assert html =~ "Season index"
+    end
+
+    test "range-selection lens is absent in predictions mode", %{conn: conn} do
+      sp = insert_gall("Acraspis tester (agamic)")
+      insert_obs(sp.id, %{})
+
+      {:ok, _view, html} = live(conn, ~p"/phenology?search=")
+      refute html =~ ~s(phx-hook="PhenologyRangeSelect")
+    end
+
     test "advanced filters are collapsed by default and toggle open", %{conn: conn} do
       {:ok, view, html} = live(conn, ~p"/phenology")
 

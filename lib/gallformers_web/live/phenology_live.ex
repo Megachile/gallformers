@@ -232,6 +232,7 @@ defmodule GallformersWeb.PhenologyLive do
         species_name: o.species_name,
         host_species_name: o.host_species_name,
         doy: o.doy,
+        seasind: o.seasind,
         date: format_obs_date(o.date),
         lat: o.latitude,
         lng: o.longitude,
@@ -665,8 +666,78 @@ defmodule GallformersWeb.PhenologyLive do
 
             <div
               :if={@filters.display_mode in [:data_table, :species_list] and @observations != []}
-              class="mt-3 flex justify-end"
+              class="mt-3 flex flex-wrap items-end justify-between gap-3"
             >
+              <%!-- Display-only selection lens: narrows the table / species
+                    list / CSV below (same as dragging a brush on the chart,
+                    ANDed with it). Season index isn't a chart axis, so this
+                    is the only way to constrain it. Client-side via the
+                    PhenologyRangeSelect hook; phx-update="ignore" keeps typed
+                    values across LV re-renders. --%>
+              <div
+                id="phenology-range-select"
+                phx-hook="PhenologyRangeSelect"
+                phx-update="ignore"
+                class="flex flex-wrap items-end gap-4"
+              >
+                <div>
+                  <span class="block text-xs font-semibold text-gray-600 mb-0.5">
+                    Day of year
+                  </span>
+                  <span class="inline-flex items-center gap-1 text-sm text-gray-700">
+                    <input
+                      type="number"
+                      data-range="doy_min"
+                      min="1"
+                      max="366"
+                      placeholder="min"
+                      aria-label="Selection day-of-year minimum"
+                      class="w-16 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
+                    /> –
+                    <input
+                      type="number"
+                      data-range="doy_max"
+                      min="1"
+                      max="366"
+                      placeholder="max"
+                      aria-label="Selection day-of-year maximum"
+                      class="w-16 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
+                    />
+                  </span>
+                </div>
+                <div>
+                  <span class="block text-xs font-semibold text-gray-600 mb-0.5">
+                    Season index
+                  </span>
+                  <span class="inline-flex items-center gap-1 text-sm text-gray-700">
+                    <input
+                      type="number"
+                      data-range="seasind_min"
+                      step="0.01"
+                      placeholder="min"
+                      aria-label="Selection season-index minimum"
+                      class="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
+                    /> –
+                    <input
+                      type="number"
+                      data-range="seasind_max"
+                      step="0.01"
+                      placeholder="max"
+                      aria-label="Selection season-index maximum"
+                      class="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
+                    />
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  data-range-clear
+                  style="display: none;"
+                  class="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Clear selection
+                </button>
+              </div>
+
               <.link
                 id="phenology-csv-link"
                 phx-hook="PhenologyCsvLink"

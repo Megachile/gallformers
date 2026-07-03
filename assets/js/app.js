@@ -20,6 +20,7 @@ import PhenologyBoundsMap from "./hooks/phenology_bounds_map"
 import PhenologyChart from "./hooks/phenology_chart"
 import PhenologyChrome from "./hooks/phenology_chrome"
 import PhenologyCsvLink from "./hooks/phenology_csv_link"
+import PhenologyRangeSelect from "./hooks/phenology_range_select"
 import PhenologyTable from "./hooks/phenology_table"
 import RangeMap from "./hooks/range_map"
 import RegionPrompt from "./hooks/region_prompt"
@@ -39,7 +40,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
   // of headroom; prod mounts cleanly so the default is fine.
   longPollFallbackMs: process.env.NODE_ENV === "development" ? 30000 : 2500,
   params: () => ({_csrf_token: csrfToken, continent: localStorage.getItem("gf_continent")}),
-  hooks: {AdminNav, ArticleImageUpload, AutoDismiss, ContentImageUpload, CopyToClipboard, DailyChart, ImageGallery, ImageUpload, IndeterminateCheckbox, InputEvent, PhenologyBoundsMap, PhenologyChart, PhenologyChrome, PhenologyCsvLink, PhenologyTable, RangeMap, RegionPrompt, RegionScope, ScrollToCouplet, SortableImages, Tabs, Typeahead},
+  hooks: {AdminNav, ArticleImageUpload, AutoDismiss, ContentImageUpload, CopyToClipboard, DailyChart, ImageGallery, ImageUpload, IndeterminateCheckbox, InputEvent, PhenologyBoundsMap, PhenologyChart, PhenologyChrome, PhenologyCsvLink, PhenologyRangeSelect, PhenologyTable, RangeMap, RegionPrompt, RegionScope, ScrollToCouplet, SortableImages, Tabs, Typeahead},
 })
 
 // Show progress bar on live navigation and form submits

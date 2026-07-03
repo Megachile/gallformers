@@ -182,6 +182,42 @@ defmodule GallformersWeb.PhenologyControllerTest do
       refute body =~ "Andricus greenish"
     end
 
+    test "sel_doy range narrows the exported CSV (display-only lens)", %{conn: conn} do
+      sp = insert_gall("Acraspis erinacei (agamic)")
+      insert_obs(sp.id, %{doy: 120, date: ~D[2024-04-29]})
+      insert_obs(sp.id, %{doy: 250, date: ~D[2024-09-06]})
+
+      body =
+        conn
+        |> get(~p"/phenology/export.csv?search=&display=table&sel_doy_min=100&sel_doy_max=150")
+        |> response(200)
+
+      lines = body |> String.split("\n", trim: true)
+      # Header + the single in-window (DOY 120) row.
+      assert length(lines) == 2
+      assert Enum.at(lines, 1) =~ "120"
+      refute body =~ "250"
+    end
+
+    test "sel_seasind range narrows the exported CSV", %{conn: conn} do
+      sp = insert_gall("Acraspis erinacei (agamic)")
+      insert_obs(sp.id, %{doy: 120, date: ~D[2024-04-29], seasind: 0.2})
+      insert_obs(sp.id, %{doy: 250, date: ~D[2024-09-06], seasind: 0.8})
+
+      body =
+        conn
+        |> get(
+          ~p"/phenology/export.csv?search=&display=table&sel_seasind_min=0.5&sel_seasind_max=1.0"
+        )
+        |> response(200)
+
+      lines = body |> String.split("\n", trim: true)
+      assert length(lines) == 2
+      # Only the seasind 0.8 obs (DOY 250) survives.
+      assert Enum.at(lines, 1) =~ "250"
+      refute body =~ ",120,"
+    end
+
     test "brush bounds in URL narrow the exported CSV", %{conn: conn} do
       sp = insert_gall("Acraspis erinacei (agamic)")
       insert_obs(sp.id, %{phenophase: "maturing", doy: 120, date: ~D[2024-04-29]})

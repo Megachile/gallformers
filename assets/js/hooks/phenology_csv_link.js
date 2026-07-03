@@ -28,19 +28,29 @@ export default {
   applyBrush() {
     const base = this.el.dataset.hrefBase || this.el.getAttribute('href') || ''
     const brush = phenologyState.brush
+    const range = phenologyState.range
+    const params = new URLSearchParams()
 
-    if (!brush) {
+    if (brush) {
+      params.set('doy_min', String(brush.doy_min))
+      params.set('doy_max', String(brush.doy_max))
+      params.set('lat_min', String(brush.lat_min))
+      params.set('lat_max', String(brush.lat_max))
+    }
+
+    if (range) {
+      // Distinct param names from the brush so the two lenses can't clash.
+      for (const key of ['doy_min', 'doy_max', 'seasind_min', 'seasind_max']) {
+        if (range[key] != null) params.set(`sel_${key}`, String(range[key]))
+      }
+    }
+
+    const qs = params.toString()
+    if (!qs) {
       this.el.href = base
       return
     }
-
-    const params = new URLSearchParams({
-      doy_min: String(brush.doy_min),
-      doy_max: String(brush.doy_max),
-      lat_min: String(brush.lat_min),
-      lat_max: String(brush.lat_max),
-    })
     const sep = base.includes('?') ? '&' : '?'
-    this.el.href = base + sep + params.toString()
+    this.el.href = base + sep + qs
   },
 }

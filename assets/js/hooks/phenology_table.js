@@ -1,4 +1,4 @@
-import { phenologyState, escapeHtml, readPoints, applyBrush } from './phenology_state'
+import { phenologyState, escapeHtml, readPoints, applySelection } from './phenology_state'
 
 // Cap on how many rows we render in the DOM. Anything past this lives
 // only in memory (and in the CSV download). Keeps the page from
@@ -51,7 +51,7 @@ export default {
 
   render() {
     const points = readPoints()
-    const filtered = applyBrush(points, phenologyState.brush)
+    const filtered = applySelection(points)
     const mode = this.el.dataset.mode || 'table'
 
     if (mode === 'species') {

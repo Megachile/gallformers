@@ -25,6 +25,7 @@ defmodule GallformersWeb.PhenologyController do
       filters
       |> Phenology.search_observations()
       |> apply_brush(PhenologyFilters.parse_brush(params))
+      |> apply_selection_range(PhenologyFilters.parse_selection_range(params))
 
     {filename, body} = build_csv(filters[:display_mode], observations)
 
@@ -41,6 +42,25 @@ defmodule GallformersWeb.PhenologyController do
       o.doy >= dmin and o.doy <= dmax and
         is_number(o.latitude) and o.latitude >= lmin and o.latitude <= lmax
     end)
+  end
+
+  # Display-only range lens (day-of-year + season index), mirroring the
+  # client-side applyRange so the CSV matches the on-screen table. Each
+  # bound is optional.
+  defp apply_selection_range(obs, nil), do: obs
+
+  defp apply_selection_range(obs, range) do
+    Enum.filter(obs, fn o ->
+      within?(o.doy, range[:doy_min], range[:doy_max]) and
+        within?(o.seasind, range[:seasind_min], range[:seasind_max])
+    end)
+  end
+
+  defp within?(_value, nil, nil), do: true
+
+  defp within?(value, min, max) do
+    (min == nil or (is_number(value) and value >= min)) and
+      (max == nil or (is_number(value) and value <= max))
   end
 
   # The two CSV shapes match what's on screen for the respective display

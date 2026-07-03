@@ -131,6 +131,33 @@ defmodule GallformersWeb.PhenologyFilters do
     end
   end
 
+  @doc """
+  Parse the display-only range-lens bounds (`sel_doy_min` / `sel_doy_max` /
+  `sel_seasind_min` / `sel_seasind_max`) from URL params. Returns a map with
+  whichever bounds parse to numbers, or `nil` when none are present. Each
+  bound is independent (unlike the brush, which needs all four).
+
+  The range lens lives entirely client-side; the CSV export reads these so
+  the downloaded file matches the on-screen table's range selection.
+  """
+  def parse_selection_range(params) when is_map(params) do
+    range =
+      %{}
+      |> put_range_bound(:doy_min, params["sel_doy_min"])
+      |> put_range_bound(:doy_max, params["sel_doy_max"])
+      |> put_range_bound(:seasind_min, params["sel_seasind_min"])
+      |> put_range_bound(:seasind_max, params["sel_seasind_max"])
+
+    if map_size(range) == 0, do: nil, else: range
+  end
+
+  defp put_range_bound(map, key, raw) do
+    case to_number(raw) do
+      {:ok, n} -> Map.put(map, key, n)
+      :error -> map
+    end
+  end
+
   # ----------------------------------------------------------------------
   # Search
   # ----------------------------------------------------------------------

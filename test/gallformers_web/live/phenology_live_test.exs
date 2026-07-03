@@ -15,6 +15,7 @@ defmodule GallformersWeb.PhenologyLiveTest do
   alias Gallformers.Phenology
   alias Gallformers.Repo
   alias Gallformers.Species.Species
+  alias Gallformers.Taxonomy.Taxonomy
 
   # All explorer phenophases checked — the equivalent of "show me everything"
   # for tests that want to focus only on search / generation filtering.
@@ -41,6 +42,19 @@ defmodule GallformersWeb.PhenologyLiveTest do
       attrs
     )
     |> Phenology.create_observation()
+  end
+
+  defp insert_taxon(attrs) do
+    {:ok, node} =
+      Repo.insert(struct(Taxonomy, Map.put_new(attrs, :is_placeholder, false)))
+
+    node
+  end
+
+  defp link_taxon(species_id, taxonomy_id) do
+    Repo.insert_all("species_taxonomy", [
+      %{species_id: species_id, taxonomy_id: taxonomy_id}
+    ])
   end
 
   describe "/phenology base rendering" do
@@ -208,6 +222,78 @@ defmodule GallformersWeb.PhenologyLiveTest do
 
       assert html =~ "0 observations"
       assert html =~ "No observations match these filters."
+    end
+  end
+
+  describe "/phenology taxon filter" do
+    setup do
+      # Cynipidae ─ Acraspis ─ sp_acraspis ; Tephritidae ─ Eurosta ─ sp_eurosta
+      cynipidae = insert_taxon(%{name: "Cynipidae", type: "family", description: "Wasp"})
+      acraspis = insert_taxon(%{name: "Acraspis", type: "genus", parent_id: cynipidae.id})
+      tephritidae = insert_taxon(%{name: "Tephritidae", type: "family", description: "Fly"})
+      eurosta = insert_taxon(%{name: "Eurosta", type: "genus", parent_id: tephritidae.id})
+
+      sp_acraspis = insert_gall("Acraspis erinacei (agamic)")
+      sp_eurosta = insert_gall("Eurosta solidaginis")
+      link_taxon(sp_acraspis.id, acraspis.id)
+      link_taxon(sp_eurosta.id, eurosta.id)
+      insert_obs(sp_acraspis.id, %{})
+      insert_obs(sp_eurosta.id, %{})
+
+      %{cynipidae: cynipidae, acraspis: acraspis, sp_acraspis: sp_acraspis}
+    end
+
+    test "the selector renders data-bearing family/tribe nodes, but not genera", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/phenology?search=")
+
+      assert html =~ ~s(<optgroup label="Family">)
+      assert html =~ "Cynipidae"
+      assert html =~ "Tephritidae"
+      # Genera are intentionally not offered in the dropdown (use the search box).
+      refute html =~ ~s(<optgroup label="Genus">)
+    end
+
+    test "selecting a family narrows the obs to species under it", %{
+      conn: conn,
+      cynipidae: cynipidae
+    } do
+      {:ok, view, _html} = live(conn, ~p"/phenology?search=")
+
+      # Baseline: both species visible with no taxon filter.
+      html =
+        view
+        |> form("form", %{
+          "search" => "",
+          "generation" => "all",
+          "phenophases" => @all_explorer_phenophases
+        })
+        |> render_change()
+
+      assert html =~ "2 observations"
+
+      html =
+        view
+        |> form("form", %{
+          "search" => "",
+          "generation" => "all",
+          "phenophases" => @all_explorer_phenophases,
+          "taxon" => to_string(cynipidae.id)
+        })
+        |> render_change()
+
+      assert html =~ "1 observation"
+      assert html =~ "Acraspis erinacei"
+      refute html =~ "Eurosta solidaginis"
+    end
+
+    test "?taxon=ID seeds the taxon filter on mount", %{conn: conn, cynipidae: cynipidae} do
+      {:ok, _view, html} = live(conn, ~p"/phenology?search=&taxon=#{cynipidae.id}")
+
+      assert html =~ "1 observation"
+      assert html =~ "Acraspis erinacei"
+      refute html =~ "Eurosta solidaginis"
+      # The selected option is marked selected in the rendered <select>.
+      assert html =~ ~r/value="#{cynipidae.id}"[^>]*selected/
     end
   end
 

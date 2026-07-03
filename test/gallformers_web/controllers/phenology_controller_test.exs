@@ -9,12 +9,26 @@ defmodule GallformersWeb.PhenologyControllerTest do
   alias Gallformers.Phenology
   alias Gallformers.Repo
   alias Gallformers.Species.Species
+  alias Gallformers.Taxonomy.Taxonomy
 
   defp insert_gall(name) do
     {:ok, sp} =
       Repo.insert(%Species{name: name, taxoncode: "gall", datacomplete: false})
 
     sp
+  end
+
+  defp insert_taxon(attrs) do
+    {:ok, node} =
+      Repo.insert(struct(Taxonomy, Map.put_new(attrs, :is_placeholder, false)))
+
+    node
+  end
+
+  defp link_taxon(species_id, taxonomy_id) do
+    Repo.insert_all("species_taxonomy", [
+      %{species_id: species_id, taxonomy_id: taxonomy_id}
+    ])
   end
 
   defp insert_obs(species_id, attrs) do
@@ -109,6 +123,28 @@ defmodule GallformersWeb.PhenologyControllerTest do
 
       assert body =~ "Aulacidea s"
       refute body =~ "Acraspis a"
+    end
+
+    test "?taxon= filters the exported obs to the taxon subtree", %{conn: conn} do
+      family = insert_taxon(%{name: "Cynipidae", type: "family", description: "Wasp"})
+      genus = insert_taxon(%{name: "Acraspis", type: "genus", parent_id: family.id})
+      other_family = insert_taxon(%{name: "Tephritidae", type: "family", description: "Fly"})
+      other_genus = insert_taxon(%{name: "Eurosta", type: "genus", parent_id: other_family.id})
+
+      inside = insert_gall("Acraspis erinacei (agamic)")
+      outside = insert_gall("Eurosta solidaginis")
+      link_taxon(inside.id, genus.id)
+      link_taxon(outside.id, other_genus.id)
+      insert_obs(inside.id, %{})
+      insert_obs(outside.id, %{})
+
+      body =
+        conn
+        |> get(~p"/phenology/export.csv?search=&display=table&taxon=#{family.id}")
+        |> response(200)
+
+      assert body =~ "Acraspis erinacei"
+      refute body =~ "Eurosta solidaginis"
     end
 
     test "brush bounds in URL narrow the exported CSV", %{conn: conn} do

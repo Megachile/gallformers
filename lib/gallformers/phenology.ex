@@ -89,6 +89,9 @@ defmodule Gallformers.Phenology do
       the `(sexgen)` / `(agamic)` suffix convention in `species.name`.
     * `:phenophases` — list of phenophase values to keep. Empty / nil =
       no phenophase filter (all obs returned regardless of phenophase).
+    * `:taxon_id` — a `taxonomy` node id (family, intermediate rank such as
+      a tribe, or genus). Restricts obs to gall species sitting under that
+      node in the taxonomy tree. Nil = no taxonomic filter.
 
   Always scoped to `species.taxoncode == "gall"` so host-plant rows can't
   leak in if they ever land in this table.
@@ -128,6 +131,7 @@ defmodule Gallformers.Phenology do
     |> apply_generation_filter(Map.get(filters, :generation, :all))
     |> apply_phenophase_filter(Map.get(filters, :phenophases))
     |> apply_coordinate_filter(filters)
+    |> apply_taxon_filter(Map.get(filters, :taxon_id))
     |> Repo.all()
   end
 
@@ -211,6 +215,124 @@ defmodule Gallformers.Phenology do
 
   defp maybe_max_lng(query, nil), do: query
   defp maybe_max_lng(query, v), do: where(query, [o], o.longitude <= ^v)
+
+  # Taxonomic filter. A species links to its genus in `species_taxonomy`;
+  # family / tribe (intermediate) filtering means "genus is a descendant of
+  # the selected node." We resolve the node to the set of species beneath it
+  # and constrain on species_id — keeping the positional bindings of the
+  # existing filters untouched. An unknown / dataless node resolves to `[]`,
+  # which correctly yields no observations.
+  defp apply_taxon_filter(query, nil), do: query
+
+  defp apply_taxon_filter(query, taxon_id) when is_integer(taxon_id) do
+    species_ids = species_ids_under_taxon(taxon_id)
+    from(o in query, where: o.species_id in ^species_ids)
+  end
+
+  defp apply_taxon_filter(query, _), do: query
+
+  @doc """
+  Returns the IDs of species that sit under the given `taxonomy` node —
+  the node itself or any descendant — via their `species_taxonomy` link.
+
+  Works for a family, an intermediate rank (subfamily / tribe / …), or a
+  genus: species link to their genus (and optionally a section), so walking
+  the subtree of the selected node and collecting every linked species
+  captures them regardless of which level was chosen. Returns `[]` for an
+  unknown id.
+  """
+  @spec species_ids_under_taxon(integer()) :: [integer()]
+  def species_ids_under_taxon(taxon_id) when is_integer(taxon_id) do
+    query = """
+    WITH RECURSIVE subtree AS (
+      SELECT id FROM taxonomy WHERE id = $1::bigint
+      UNION ALL
+      SELECT t.id FROM taxonomy t JOIN subtree s ON t.parent_id = s.id
+    )
+    SELECT DISTINCT st.species_id
+    FROM species_taxonomy st
+    WHERE st.taxonomy_id IN (SELECT id FROM subtree)
+    """
+
+    case Repo.query(query, [taxon_id]) do
+      {:ok, %{rows: rows}} -> Enum.map(rows, fn [id] -> id end)
+      {:error, _} -> []
+    end
+  end
+
+  @doc """
+  Lists the family- and intermediate-rank (subfamily / tribe / …) `taxonomy`
+  nodes that have at least one gall species carrying phenology observations,
+  for the explorer's taxon selector. Only nodes with data are returned, so
+  the selector can never offer a dead option.
+
+  Genus nodes are intentionally excluded: there are far too many to scale in
+  a dropdown, and the free-text search box already filters by genus (it
+  ILIKEs the species name, whose first word is the genus). This selector is
+  for the higher-level rollups the text box can't express.
+
+  Each option is a map `%{id, name, group, n_species}` where `group` is a
+  display label for the rank ("Family" / "Subfamily" / "Tribe" / …) and
+  `n_species` is the count of distinct observed species beneath the node.
+  Ordered family → intermediate ranks, alphabetized within each group.
+  """
+  @spec list_taxon_filter_options() :: [map()]
+  def list_taxon_filter_options do
+    query = """
+    WITH RECURSIVE lineage AS (
+      SELECT DISTINCT st.species_id, t.id, t.name, t.type, t.rank, t.parent_id
+      FROM phenology_observations o
+      JOIN species s ON s.id = o.species_id AND s.taxoncode = 'gall'
+      JOIN species_taxonomy st ON st.species_id = o.species_id
+      JOIN taxonomy t ON t.id = st.taxonomy_id AND t.type = 'genus'
+      UNION ALL
+      SELECT l.species_id, t.id, t.name, t.type, t.rank, t.parent_id
+      FROM taxonomy t
+      JOIN lineage l ON t.id = l.parent_id
+      WHERE l.type <> 'family'
+    )
+    SELECT id, name, type, rank, count(DISTINCT species_id) AS n_species
+    FROM lineage
+    WHERE type <> 'genus'
+    GROUP BY id, name, type, rank
+    """
+
+    case Repo.query(query, []) do
+      {:ok, %{rows: rows}} ->
+        rows
+        |> Enum.map(fn [id, name, type, rank, n] ->
+          %{
+            id: id,
+            name: name,
+            group: taxon_group_label(type, rank),
+            n_species: n,
+            rank_order: taxon_rank_order(type, rank)
+          }
+        end)
+        |> Enum.sort_by(&{&1.rank_order, &1.name})
+
+      {:error, _} ->
+        []
+    end
+  end
+
+  defp taxon_group_label("family", _), do: "Family"
+  defp taxon_group_label("intermediate", rank) when is_binary(rank), do: rank
+  defp taxon_group_label("intermediate", _), do: "Intermediate"
+  defp taxon_group_label("genus", _), do: "Genus"
+  defp taxon_group_label(_, _), do: "Other"
+
+  # Sort key so the select groups read family → subfamily → tribe → genus.
+  defp taxon_rank_order("family", _), do: 0
+  defp taxon_rank_order("intermediate", "Subfamily"), do: 1
+  defp taxon_rank_order("intermediate", "Infrafamily"), do: 2
+  defp taxon_rank_order("intermediate", "Supertribe"), do: 3
+  defp taxon_rank_order("intermediate", "Tribe"), do: 4
+  defp taxon_rank_order("intermediate", "Subtribe"), do: 5
+  defp taxon_rank_order("intermediate", "Infratribe"), do: 6
+  defp taxon_rank_order("intermediate", _), do: 7
+  defp taxon_rank_order("genus", _), do: 8
+  defp taxon_rank_order(_, _), do: 9
 
   @doc """
   Returns observations whose raw and processed phenophase disagree — i.e. an

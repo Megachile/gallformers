@@ -53,6 +53,7 @@ defmodule GallformersWeb.PhenologyFilters do
       search: parse_search_url(params),
       generation: parse_generation(params["gen"]),
       phenophases: parse_phenophases_url(params),
+      taxon_id: parse_taxon_id(params["taxon"]),
       display_mode: parse_display_mode(params["display"]),
       target_lat: parse_target_lat(params["lat"]),
       min_lat: parse_lat_bound(params["min_lat"]),
@@ -73,6 +74,7 @@ defmodule GallformersWeb.PhenologyFilters do
       search: parse_search_value(params["search"]),
       generation: parse_generation(params["generation"]),
       phenophases: parse_phenophases_form(params["phenophases"]),
+      taxon_id: parse_taxon_id(params["taxon"]),
       display_mode: parse_display_mode(params["display"]),
       target_lat: parse_target_lat(params["target_lat"]),
       min_lat: parse_lat_bound(params["min_lat"]),
@@ -93,6 +95,7 @@ defmodule GallformersWeb.PhenologyFilters do
     |> maybe_put_search(filters[:search])
     |> maybe_put_gen(filters[:generation])
     |> maybe_put_phen(filters[:phenophases])
+    |> maybe_put_taxon(filters[:taxon_id])
     |> maybe_put_display(filters[:display_mode])
     |> maybe_put_lat(filters[:target_lat])
     |> maybe_put_coord(:min_lat, filters[:min_lat])
@@ -209,6 +212,26 @@ defmodule GallformersWeb.PhenologyFilters do
   defp parse_phenophases_value(_), do: []
 
   # ----------------------------------------------------------------------
+  # Taxon (family / tribe / genus node id)
+  # ----------------------------------------------------------------------
+
+  # A single `taxonomy` node id. Absent / empty / non-positive means "no
+  # taxonomic filter" — the same nil in both URL and form parsing, since
+  # an empty <select> option submits "".
+  defp parse_taxon_id(nil), do: nil
+  defp parse_taxon_id(""), do: nil
+
+  defp parse_taxon_id(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {id, ""} when id > 0 -> id
+      _ -> nil
+    end
+  end
+
+  defp parse_taxon_id(value) when is_integer(value) and value > 0, do: value
+  defp parse_taxon_id(_), do: nil
+
+  # ----------------------------------------------------------------------
   # Display mode
   # ----------------------------------------------------------------------
 
@@ -304,6 +327,11 @@ defmodule GallformersWeb.PhenologyFilters do
 
   defp maybe_put_phen(query, _empty_or_nil),
     do: query ++ [phen: ""]
+
+  defp maybe_put_taxon(query, id) when is_integer(id) and id > 0,
+    do: query ++ [taxon: id]
+
+  defp maybe_put_taxon(query, _), do: query
 
   defp maybe_put_display(query, :predictions), do: query
   defp maybe_put_display(query, :data_table), do: query ++ [display: "table"]

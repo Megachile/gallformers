@@ -8,12 +8,29 @@ defmodule Gallformers.PhenologyTest do
   alias Gallformers.Phenology
   alias Gallformers.Phenology.Observation
   alias Gallformers.Species.Species
+  alias Gallformers.Taxonomy.Taxonomy
 
   defp create_gall_species(name \\ "Acraspis testica (agamic)") do
     {:ok, sp} =
       Repo.insert(%Species{name: name, taxoncode: "gall", datacomplete: false})
 
     sp
+  end
+
+  # Insert a taxonomy node directly (bypassing the changeset so tests can build
+  # arbitrary trees without satisfying every create-time validation).
+  defp insert_taxon(attrs) do
+    {:ok, node} =
+      Repo.insert(struct(Taxonomy, Map.put_new(attrs, :is_placeholder, false)))
+
+    node
+  end
+
+  # Link a species to a taxonomy node via the species_taxonomy join table.
+  defp link_taxon(species_id, taxonomy_id) do
+    Repo.insert_all("species_taxonomy", [
+      %{species_id: species_id, taxonomy_id: taxonomy_id}
+    ])
   end
 
   defp valid_attrs(species_id, overrides \\ %{}) do
@@ -231,6 +248,115 @@ defmodule Gallformers.PhenologyTest do
       results = Phenology.search_observations()
       assert length(results) == 3
       refute Enum.any?(results, &(&1.species_name == "Quercus plant"))
+    end
+  end
+
+  describe "taxonomic filter" do
+    # Builds a small tree:  Cynipidae (family)
+    #                         └─ Cynipini (intermediate, rank Tribe)
+    #                             └─ Acraspis (genus) ─ sp_acraspis
+    #                         └─ Aulacidea (genus, directly under family) ─ sp_aulacidea
+    # plus a genus in another family: Eurosta (Tephritidae) ─ sp_eurosta
+    setup do
+      cynipidae = insert_taxon(%{name: "Cynipidae", type: "family", description: "Wasp"})
+
+      cynipini =
+        insert_taxon(%{
+          name: "Cynipini",
+          type: "intermediate",
+          rank: "Tribe",
+          parent_id: cynipidae.id
+        })
+
+      acraspis = insert_taxon(%{name: "Acraspis", type: "genus", parent_id: cynipini.id})
+      aulacidea = insert_taxon(%{name: "Aulacidea", type: "genus", parent_id: cynipidae.id})
+
+      tephritidae = insert_taxon(%{name: "Tephritidae", type: "family", description: "Fly"})
+      eurosta = insert_taxon(%{name: "Eurosta", type: "genus", parent_id: tephritidae.id})
+
+      sp_acraspis = create_gall_species("Acraspis erinacei (agamic)")
+      sp_aulacidea = create_gall_species("Aulacidea nabali (sexgen)")
+      sp_eurosta = create_gall_species("Eurosta solidaginis")
+      link_taxon(sp_acraspis.id, acraspis.id)
+      link_taxon(sp_aulacidea.id, aulacidea.id)
+      link_taxon(sp_eurosta.id, eurosta.id)
+
+      {:ok, _} = Phenology.create_observation(valid_attrs(sp_acraspis.id))
+      {:ok, _} = Phenology.create_observation(valid_attrs(sp_aulacidea.id))
+      {:ok, _} = Phenology.create_observation(valid_attrs(sp_eurosta.id))
+
+      %{
+        cynipidae: cynipidae,
+        cynipini: cynipini,
+        acraspis: acraspis,
+        tephritidae: tephritidae,
+        sp_acraspis: sp_acraspis,
+        sp_aulacidea: sp_aulacidea,
+        sp_eurosta: sp_eurosta
+      }
+    end
+
+    test "species_ids_under_taxon/1 collects the whole subtree", ctx do
+      family = Phenology.species_ids_under_taxon(ctx.cynipidae.id) |> Enum.sort()
+      assert family == Enum.sort([ctx.sp_acraspis.id, ctx.sp_aulacidea.id])
+
+      # An intermediate (tribe) node only reaches genera below it.
+      assert Phenology.species_ids_under_taxon(ctx.cynipini.id) == [ctx.sp_acraspis.id]
+      # A genus node reaches its own directly-linked species.
+      assert Phenology.species_ids_under_taxon(ctx.acraspis.id) == [ctx.sp_acraspis.id]
+    end
+
+    test "species_ids_under_taxon/1 returns [] for an unknown id" do
+      assert Phenology.species_ids_under_taxon(9_999_999) == []
+    end
+
+    test "search_observations filters by family (walks through the tribe)", ctx do
+      results = Phenology.search_observations(%{taxon_id: ctx.cynipidae.id})
+      names = Enum.map(results, & &1.species_name) |> Enum.sort()
+      assert names == ["Acraspis erinacei (agamic)", "Aulacidea nabali (sexgen)"]
+      refute "Eurosta solidaginis" in names
+    end
+
+    test "search_observations filters by genus", ctx do
+      results = Phenology.search_observations(%{taxon_id: ctx.acraspis.id})
+      assert length(results) == 1
+      assert hd(results).species_name == "Acraspis erinacei (agamic)"
+    end
+
+    test "an unknown taxon_id yields no observations", _ctx do
+      assert Phenology.search_observations(%{taxon_id: 9_999_999}) == []
+    end
+
+    test "taxon filter composes with generation", ctx do
+      results =
+        Phenology.search_observations(%{taxon_id: ctx.cynipidae.id, generation: :sexgen})
+
+      assert length(results) == 1
+      assert hd(results).species_name == "Aulacidea nabali (sexgen)"
+    end
+
+    test "list_taxon_filter_options returns data-bearing family/tribe nodes, grouped and counted",
+         _ctx do
+      opts = Phenology.list_taxon_filter_options()
+      by_name = Map.new(opts, &{&1.name, &1})
+
+      # Cynipidae: 2 observed species beneath it; grouped as a Family.
+      assert %{group: "Family", n_species: 2} = by_name["Cynipidae"]
+      # The tribe shows up with its rank as the group label.
+      assert %{group: "Tribe", n_species: 1} = by_name["Cynipini"]
+      assert %{group: "Family", n_species: 1} = by_name["Tephritidae"]
+
+      # Genera are intentionally excluded — the text search box covers those.
+      refute Map.has_key?(by_name, "Acraspis")
+      refute Map.has_key?(by_name, "Aulacidea")
+      refute Map.has_key?(by_name, "Eurosta")
+      refute Enum.any?(opts, &(&1.group == "Genus"))
+
+      # Ordered family → tribe.
+      groups = Enum.map(opts, & &1.group) |> Enum.uniq()
+
+      assert Enum.find_index(groups, &(&1 == "Family")) <
+               Enum.find_index(groups, &(&1 == "Tribe"))
     end
   end
 

@@ -31,6 +31,10 @@ defmodule GallformersWeb.PhenologyLive do
         page_image: nil,
         page_json_ld: nil,
         explorer_phenophases: PhenologyFilters.explorer_phenophases(),
+        # Grouped list of family/tribe/genus nodes that actually have
+        # phenology data, for the taxon selector. Loaded in the live mount
+        # alongside observations so the dead render doesn't pay for it.
+        taxon_options: [],
         filters: filters,
         observations: [],
         chart_points_json: "[]",
@@ -54,6 +58,7 @@ defmodule GallformersWeb.PhenologyLive do
     socket =
       if connected?(socket) do
         socket
+        |> assign(taxon_options: Phenology.list_taxon_filter_options())
         |> load_observations()
         |> compute_predictions()
         |> assign(initialized?: true)
@@ -117,6 +122,7 @@ defmodule GallformersWeb.PhenologyLive do
     a[:search] != b[:search] or
       a[:generation] != b[:generation] or
       a[:phenophases] != b[:phenophases] or
+      a[:taxon_id] != b[:taxon_id] or
       a[:min_lat] != b[:min_lat] or
       a[:max_lat] != b[:max_lat] or
       a[:min_lng] != b[:min_lng] or
@@ -224,6 +230,16 @@ defmodule GallformersWeb.PhenologyLive do
   defp gen_value(%{generation: gen}) when gen in @generations, do: Atom.to_string(gen)
   defp gen_value(_), do: "all"
 
+  # Groups the (already rank-then-name sorted) taxon options into
+  # {group_label, options} pairs for rendering as <optgroup>s. Entries of
+  # the same group are contiguous after the sort, so chunk_by preserves the
+  # family → tribe → genus ordering.
+  defp grouped_taxa(options) do
+    options
+    |> Enum.chunk_by(& &1.group)
+    |> Enum.map(fn [%{group: g} | _] = chunk -> {g, chunk} end)
+  end
+
   defp display_value(%{display_mode: :data_table}), do: "table"
   defp display_value(%{display_mode: :species_list}), do: "species"
   defp display_value(_), do: "predictions"
@@ -290,6 +306,32 @@ defmodule GallformersWeb.PhenologyLive do
           />
           <span style="display: block; color: #666; font-size: 11px; margin-top: 2px;">
             Comma-separated for multiple terms; matches any fragment in the species name.
+          </span>
+        </div>
+
+        <div>
+          <label for="taxon" style="font-weight: 600; display: block; margin-bottom: 4px;">
+            Taxon (family / tribe)
+          </label>
+          <select
+            name="taxon"
+            id="taxon"
+            style="max-width: 100%; padding: 5px 8px; border: 1px solid #ccc; border-radius: 3px;"
+          >
+            <option value="" selected={is_nil(@filters[:taxon_id])}>All taxa</option>
+            <optgroup :for={{group, opts} <- grouped_taxa(@taxon_options)} label={group}>
+              <option
+                :for={t <- opts}
+                value={t.id}
+                selected={@filters[:taxon_id] == t.id}
+              >
+                {t.name} ({t.n_species})
+              </option>
+            </optgroup>
+          </select>
+          <span style="display: block; color: #666; font-size: 11px; margin-top: 2px;">
+            Restricts to species under the chosen family or tribe. For a single
+            genus, use the search box above. Count is species with phenology data.
           </span>
         </div>
 

@@ -30,17 +30,20 @@ export default {
     this._unsubscribe = phenologyState.subscribe(() => this.render())
     this._lastVersion = this.el.dataset.version || ''
     this._lastMode = this.el.dataset.mode || ''
+    this._lastSort = this.el.dataset.sort || ''
     this.render()
   },
 
   updated() {
-    // Host attribute changed — either filter applied (new obs version)
-    // or display mode toggled (table ↔ species). Either way: re-render.
+    // Host attribute changed — filter applied (new obs version), display mode
+    // toggled (table ↔ species), or the species-list sort changed. Re-render.
     const v = this.el.dataset.version || ''
     const m = this.el.dataset.mode || ''
-    if (v !== this._lastVersion || m !== this._lastMode) {
+    const s = this.el.dataset.sort || ''
+    if (v !== this._lastVersion || m !== this._lastMode || s !== this._lastSort) {
       this._lastVersion = v
       this._lastMode = m
+      this._lastSort = s
       this.render()
     }
   },
@@ -55,7 +58,7 @@ export default {
     const mode = this.el.dataset.mode || 'table'
 
     if (mode === 'species') {
-      this.el.innerHTML = renderSpeciesTable(filtered)
+      this.el.innerHTML = renderSpeciesTable(filtered, this.el.dataset.sort || 'name')
     } else {
       this.el.innerHTML = renderObsTable(filtered)
     }
@@ -135,30 +138,42 @@ function formatCoord(c) {
 // Species list (one row per species with obs count)
 // ---------------------------------------------------------------------
 
-function renderSpeciesTable(points) {
+function renderSpeciesTable(points, sort) {
   const groups = new Map()
   for (const p of points) {
-    const key = p.species_id
-    const existing = groups.get(key)
-    if (existing) {
-      existing.n_obs += 1
+    const g = groups.get(p.species_id)
+    if (g) {
+      g.n_obs += 1
+      if (p.doy < g.doy_min) g.doy_min = p.doy
+      if (p.doy > g.doy_max) g.doy_max = p.doy
+      if (p.date && p.date > g.last_date) g.last_date = p.date
     } else {
-      groups.set(key, { species_id: p.species_id, name: p.species_name, n_obs: 1 })
+      groups.set(p.species_id, {
+        species_id: p.species_id,
+        name: p.species_name,
+        n_obs: 1,
+        doy_min: p.doy,
+        doy_max: p.doy,
+        last_date: p.date || '',
+      })
     }
   }
 
-  const sorted = Array.from(groups.values()).sort((a, b) =>
-    (a.name || '').localeCompare(b.name || ''),
-  )
-  const total = sorted.length
+  const rows = Array.from(groups.values())
+  for (const r of rows) r.spread = r.doy_max - r.doy_min
+  sortSpeciesRows(rows, sort)
+
+  const total = rows.length
   const shown = Math.min(total, SPECIES_ROW_CAP)
-  const rows = sorted
+  const body = rows
     .slice(0, SPECIES_ROW_CAP)
     .map(
       (r) =>
         `<tr>
           <td><a href="/gall/${encodeURIComponent(r.species_id)}">${escapeHtml(r.name)}</a></td>
           <td>${r.n_obs}</td>
+          <td>${r.spread}</td>
+          <td>${escapeHtml(r.last_date || '—')}</td>
         </tr>`,
     )
     .join('')
@@ -166,8 +181,26 @@ function renderSpeciesTable(points) {
   return `
     ${truncationNotice(shown, total, 'species')}
     <table id="phenology-species-table" class="gf-table gf-table-compact gf-table-zebra">
-      <thead><tr><th>Species</th><th>Observations</th></tr></thead>
-      <tbody>${rows}</tbody>
+      <thead><tr><th>Species</th><th>Observations</th><th>DOY span</th><th>Latest</th></tr></thead>
+      <tbody>${body}</tbody>
     </table>
   `
+}
+
+// Mirrors Phenology.sort_species_rows/2 (name is the stable tiebreaker).
+function sortSpeciesRows(rows, sort) {
+  const byName = (a, b) => (a.name || '').localeCompare(b.name || '')
+  switch (sort) {
+    case 'obs_count':
+      rows.sort((a, b) => b.n_obs - a.n_obs || byName(a, b))
+      break
+    case 'spread':
+      rows.sort((a, b) => b.spread - a.spread || byName(a, b))
+      break
+    case 'recency':
+      rows.sort((a, b) => (b.last_date || '').localeCompare(a.last_date || '') || byName(a, b))
+      break
+    default:
+      rows.sort(byName)
+  }
 }

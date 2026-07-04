@@ -16,7 +16,7 @@ defmodule GallformersWeb.PhenologyController do
   NimbleCSV.define(PhenologyCSV, separator: ",", escape: "\"")
 
   @obs_headers ~w(species phenophase lifestage viability host doy date latitude longitude source_type source_url page_url)
-  @species_headers ~w(species n_obs)
+  @species_headers ~w(species n_obs doy_span latest)
 
   def export(conn, params) do
     filters = PhenologyFilters.from_url_params(params)
@@ -27,7 +27,7 @@ defmodule GallformersWeb.PhenologyController do
       |> apply_brush(PhenologyFilters.parse_brush(params))
       |> apply_selection(PhenologyFilters.parse_selection(params))
 
-    {filename, body} = build_csv(filters[:display_mode], observations)
+    {filename, body} = build_csv(filters[:display_mode], observations, filters[:sort])
 
     conn
     |> put_resp_content_type("text/csv")
@@ -72,22 +72,46 @@ defmodule GallformersWeb.PhenologyController do
   # The two CSV shapes match what's on screen for the respective display
   # modes; predictions / any other mode gets the full obs table by default
   # so the download is never empty.
-  defp build_csv(:species_list, observations) do
+  defp build_csv(:species_list, observations, sort) do
     rows =
       observations
       |> Enum.group_by(&{&1.species_id, &1.species_name})
-      |> Enum.map(fn {{_, name}, obs} -> [name, length(obs)] end)
-      |> Enum.sort_by(&Enum.at(&1, 0))
+      |> Enum.map(fn {{_, name}, obs} ->
+        doys = Enum.map(obs, & &1.doy)
+        latest = obs |> Enum.map(& &1.date) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end)
+
+        %{
+          name: name,
+          n_obs: length(obs),
+          spread: Enum.max(doys) - Enum.min(doys),
+          latest: latest
+        }
+      end)
+      |> sort_species(sort)
+      |> Enum.map(&[&1.name, &1.n_obs, &1.spread, format_date(&1.latest)])
 
     body = encode([@species_headers | rows])
     {"phenology_species.csv", body}
   end
 
-  defp build_csv(_data_table_or_other, observations) do
+  defp build_csv(_data_table_or_other, observations, _sort) do
     rows = Enum.map(observations, &obs_to_row/1)
     body = encode([@obs_headers | rows])
     {"phenology_observations.csv", body}
   end
+
+  # Matches Phenology.sort_species_rows/2 (name is the stable tiebreaker) so the
+  # download order agrees with the on-screen species list.
+  defp sort_species(rows, :obs_count), do: Enum.sort_by(rows, &{-&1.n_obs, &1.name})
+  defp sort_species(rows, :spread), do: Enum.sort_by(rows, &{-&1.spread, &1.name})
+
+  defp sort_species(rows, :recency) do
+    rows
+    |> Enum.sort_by(& &1.name)
+    |> Enum.sort_by(&(&1.latest || ~D[0001-01-01]), {:desc, Date})
+  end
+
+  defp sort_species(rows, _name), do: Enum.sort_by(rows, & &1.name)
 
   defp obs_to_row(o) do
     [

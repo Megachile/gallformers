@@ -201,6 +201,25 @@ defmodule GallformersWeb.PhenologyControllerTest do
       refute body =~ "Andricus greenish"
     end
 
+    test "?display=species&sort=obs_count orders the species CSV by count", %{conn: conn} do
+      few = insert_gall("Aaa fewobs (agamic)")
+      many = insert_gall("Zzz manyobs (agamic)")
+      insert_obs(few.id, %{})
+      insert_obs(many.id, %{})
+      insert_obs(many.id, %{date: ~D[2024-07-01], doy: 183})
+
+      body =
+        conn
+        |> get(~p"/phenology/export.csv?search=&display=species&sort=obs_count")
+        |> response(200)
+
+      lines = String.split(body, "\n", trim: true)
+      # Header, then the higher-count species (Zzz, 2) before the lower (Aaa, 1).
+      assert Enum.at(lines, 0) =~ "species,n_obs,doy_span,latest"
+      assert Enum.at(lines, 1) =~ "Zzz manyobs"
+      assert Enum.at(lines, 2) =~ "Aaa fewobs"
+    end
+
     test "?place= filters the exported obs to species ranged in the region", %{conn: conn} do
       usa = insert_place("Testeria", "country")
       ca = insert_place("Testalpha", "state")

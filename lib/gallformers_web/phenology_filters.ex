@@ -60,6 +60,7 @@ defmodule GallformersWeb.PhenologyFilters do
       color_ids: parse_id_list(params["color"]),
       shape_ids: parse_id_list(params["shape"]),
       display_mode: parse_display_mode(params["display"]),
+      sort: parse_sort(params["sort"]),
       target_lat: parse_target_lat(params["lat"]),
       min_lat: parse_lat_bound(params["min_lat"]),
       max_lat: parse_lat_bound(params["max_lat"]),
@@ -85,6 +86,7 @@ defmodule GallformersWeb.PhenologyFilters do
       color_ids: parse_id_list(params["color_ids"]),
       shape_ids: parse_id_list(params["shape_ids"]),
       display_mode: parse_display_mode(params["display"]),
+      sort: parse_sort(params["sort"]),
       target_lat: parse_target_lat(params["target_lat"]),
       min_lat: parse_lat_bound(params["min_lat"]),
       max_lat: parse_lat_bound(params["max_lat"]),
@@ -110,6 +112,7 @@ defmodule GallformersWeb.PhenologyFilters do
     |> maybe_put_id_list(:color, filters[:color_ids])
     |> maybe_put_id_list(:shape, filters[:shape_ids])
     |> maybe_put_display(filters[:display_mode])
+    |> maybe_put_sort(filters[:sort])
     |> maybe_put_lat(filters[:target_lat])
     |> maybe_put_coord(:min_lat, filters[:min_lat])
     |> maybe_put_coord(:max_lat, filters[:max_lat])
@@ -324,6 +327,15 @@ defmodule GallformersWeb.PhenologyFilters do
   defp parse_display_mode(_), do: :predictions
 
   # ----------------------------------------------------------------------
+  # Sort order (species list). Display-only, so it never reloads the obs set.
+  # ----------------------------------------------------------------------
+
+  defp parse_sort("obs_count"), do: :obs_count
+  defp parse_sort("spread"), do: :spread
+  defp parse_sort("recency"), do: :recency
+  defp parse_sort(_), do: :name
+
+  # ----------------------------------------------------------------------
   # Target latitude
   # ----------------------------------------------------------------------
 
@@ -429,6 +441,11 @@ defmodule GallformersWeb.PhenologyFilters do
   defp maybe_put_display(query, :data_table), do: query ++ [display: "table"]
   defp maybe_put_display(query, :species_list), do: query ++ [display: "species"]
   defp maybe_put_display(query, _), do: query
+
+  defp maybe_put_sort(query, :obs_count), do: query ++ [sort: "obs_count"]
+  defp maybe_put_sort(query, :spread), do: query ++ [sort: "spread"]
+  defp maybe_put_sort(query, :recency), do: query ++ [sort: "recency"]
+  defp maybe_put_sort(query, _), do: query
 
   defp maybe_put_lat(query, lat) when is_number(lat) do
     if lat == @default_target_lat, do: query, else: query ++ [lat: to_string(lat)]

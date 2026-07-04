@@ -429,6 +429,57 @@ defmodule GallformersWeb.PhenologyLiveTest do
     end
   end
 
+  describe "/phenology species sort" do
+    # Names chosen so alphabetical order is the OPPOSITE of the sort orders
+    # under test, proving the sort actually reordered.
+    setup do
+      few = insert_gall("Aaa fewobs (agamic)")
+      many = insert_gall("Zzz manyobs (agamic)")
+      # `many` has more obs AND a wider DOY span AND a more recent date.
+      insert_obs(few.id, %{doy: 150, date: ~D[2020-06-01]})
+      insert_obs(many.id, %{doy: 60, date: ~D[2024-03-01]})
+      insert_obs(many.id, %{doy: 200, date: ~D[2024-07-18]})
+      insert_obs(many.id, %{doy: 300, date: ~D[2024-10-26]})
+      %{few: few, many: many}
+    end
+
+    defp gall_link_index(html, id), do: elem(:binary.match(html, "/gall/#{id}"), 0)
+
+    test "sort control renders only in species-list mode", %{conn: conn} do
+      {:ok, _view, species} = live(conn, ~p"/phenology?search=&display=species")
+      assert species =~ ~s(name="sort")
+      assert species =~ "Phenology spread"
+      assert species =~ "Most recent"
+
+      {:ok, _view, table} = live(conn, ~p"/phenology?search=&display=table")
+      refute table =~ ~s(name="sort")
+    end
+
+    test "default sort is alphabetical by name", %{conn: conn, few: few, many: many} do
+      {:ok, _view, html} = live(conn, ~p"/phenology?search=&display=species")
+      assert gall_link_index(html, few.id) < gall_link_index(html, many.id)
+    end
+
+    test "sort=obs_count orders by observation count desc", %{conn: conn, few: few, many: many} do
+      {:ok, _view, html} = live(conn, ~p"/phenology?search=&display=species&sort=obs_count")
+      assert gall_link_index(html, many.id) < gall_link_index(html, few.id)
+    end
+
+    test "sort=spread orders by DOY span desc", %{conn: conn, few: few, many: many} do
+      {:ok, _view, html} = live(conn, ~p"/phenology?search=&display=species&sort=spread")
+      assert gall_link_index(html, many.id) < gall_link_index(html, few.id)
+    end
+
+    test "sort=recency orders by latest observation date desc", %{
+      conn: conn,
+      few: few,
+      many: many
+    } do
+      {:ok, _view, html} = live(conn, ~p"/phenology?search=&display=species&sort=recency")
+      assert gall_link_index(html, many.id) < gall_link_index(html, few.id)
+    end
+  end
+
   describe "/phenology trait filter" do
     setup do
       red = insert_color("test-scarlet")

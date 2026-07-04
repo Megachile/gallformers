@@ -296,14 +296,39 @@ defmodule GallformersWeb.PhenologyLive do
   defp display_value(%{display_mode: :species_list}), do: "species"
   defp display_value(_), do: "predictions"
 
-  # Collapses the obs list to one row per species with the obs count attached,
-  # ordered by name. Used by the species_list display mode.
-  defp species_rows(observations) do
+  # Collapses the obs list to one row per species with obs count, day-of-year
+  # span, and latest-observation date attached, ordered by `sort`. Used by the
+  # species_list display mode (the JS table mirrors this ordering client-side).
+  defp species_rows(observations, sort) do
     observations
     |> Enum.group_by(&{&1.species_id, &1.species_name})
-    |> Enum.map(fn {{id, name}, obs} -> %{species_id: id, name: name, n_obs: length(obs)} end)
-    |> Enum.sort_by(& &1.name)
+    |> Enum.map(fn {{id, name}, obs} ->
+      doys = Enum.map(obs, & &1.doy)
+
+      %{
+        species_id: id,
+        name: name,
+        n_obs: length(obs),
+        spread: Enum.max(doys) - Enum.min(doys),
+        last_date: obs |> Enum.map(& &1.date) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end)
+      }
+    end)
+    |> sort_species_rows(sort)
   end
+
+  # Name is the tiebreaker (and default) so the order is stable.
+  defp sort_species_rows(rows, :obs_count), do: Enum.sort_by(rows, &{-&1.n_obs, &1.name})
+  defp sort_species_rows(rows, :spread), do: Enum.sort_by(rows, &{-&1.spread, &1.name})
+
+  defp sort_species_rows(rows, :recency) do
+    # Stable two-pass: name asc first, then latest-date desc keeps name as the
+    # ascending tiebreaker within a date.
+    rows
+    |> Enum.sort_by(& &1.name)
+    |> Enum.sort_by(&(&1.last_date || ~D[0001-01-01]), {:desc, Date})
+  end
+
+  defp sort_species_rows(rows, _name), do: Enum.sort_by(rows, & &1.name)
 
   # Path for the CSV export endpoint, preserving the current filter state.
   # The brush selection (if any) is appended client-side by the
@@ -415,6 +440,24 @@ defmodule GallformersWeb.PhenologyLive do
                 </label>
               <% end %>
             </fieldset>
+
+            <div :if={@filters.display_mode == :species_list}>
+              <label for="sort" class="block text-sm font-semibold text-gray-700 mb-1">
+                Sort species by
+              </label>
+              <select name="sort" id="sort" class="gf-select">
+                <%= for {value, label} <- [
+                    {"name", "Name (A–Z)"},
+                    {"obs_count", "Observation count"},
+                    {"spread", "Phenology spread"},
+                    {"recency", "Most recent"}
+                  ] do %>
+                  <option value={value} selected={to_string(@filters.sort) == value}>
+                    {label}
+                  </option>
+                <% end %>
+              </select>
+            </div>
 
             <div>
               <label for="target_lat" class="block text-sm font-semibold text-gray-700 mb-1">
@@ -880,19 +923,22 @@ defmodule GallformersWeb.PhenologyLive do
                   phx-update="ignore"
                   data-mode="species"
                   data-version={@obs_version}
+                  data-sort={to_string(@filters.sort)}
                   class="mt-3 max-h-[60vh] overflow-auto rounded-lg border border-gray-200 bg-white"
                 >
                   <%!-- SSR / no-JS fallback only — see comment on the
                         obs-table host above. --%>
                   <.table
                     id="phenology-species-table"
-                    rows={species_rows(@observations)}
+                    rows={species_rows(@observations, @filters.sort)}
                     variant="compact"
                   >
                     <:col :let={row} label="Species">
                       <.link href={~p"/gall/#{row.species_id}"}>{row.name}</.link>
                     </:col>
                     <:col :let={row} label="Observations">{row.n_obs}</:col>
+                    <:col :let={row} label="DOY span">{row.spread}</:col>
+                    <:col :let={row} label="Latest">{format_obs_date(row.last_date)}</:col>
                   </.table>
                 </div>
               <% true -> %>

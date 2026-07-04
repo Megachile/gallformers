@@ -659,94 +659,143 @@ defmodule GallformersWeb.PhenologyLive do
               class="relative h-[540px] rounded-lg border border-gray-200 bg-white"
             >
             </div>
-            <p class="mt-1 text-xs text-gray-500">
-              Drag on the chart to brush-select observations into the table /
-              species list below. Click outside the brush to clear.
-            </p>
-
             <div
               :if={@filters.display_mode in [:data_table, :species_list] and @observations != []}
-              class="mt-3 flex flex-wrap items-end justify-between gap-3"
+              class="mt-3"
             >
-              <%!-- Display-only selection lens: narrows the table / species
-                    list / CSV below (same as dragging a brush on the chart,
-                    ANDed with it). Season index isn't a chart axis, so this
-                    is the only way to constrain it. Client-side via the
-                    PhenologyRangeSelect hook; phx-update="ignore" keeps typed
-                    values across LV re-renders. --%>
+              <%!-- Display-only selection lens (port of the doyCalc "Selection
+                    mode"): narrows the table / species list / CSV below. Never
+                    touches the prediction windows. Client-side via the
+                    PhenologySelect hook, which shows/hides the per-mode input
+                    groups; phx-update="ignore" keeps typed values across LV
+                    re-renders. --%>
               <div
-                id="phenology-range-select"
-                phx-hook="PhenologyRangeSelect"
+                id="phenology-select"
+                phx-hook="PhenologySelect"
                 phx-update="ignore"
-                class="flex flex-wrap items-end gap-4"
+                class="rounded-lg border border-gray-200 bg-gray-50 p-3"
               >
-                <div>
-                  <span class="block text-xs font-semibold text-gray-600 mb-0.5">
-                    Day of year
-                  </span>
-                  <span class="inline-flex items-center gap-1 text-sm text-gray-700">
+                <div class="flex flex-wrap items-start gap-x-6 gap-y-3">
+                  <div>
+                    <span class="block text-xs font-semibold text-gray-600 mb-1">
+                      Selection mode
+                    </span>
+                    <div class="flex flex-col gap-1 text-sm text-gray-700">
+                      <label class="inline-flex items-center gap-1.5">
+                        <input
+                          type="radio"
+                          name="phenology-sel-mode"
+                          value="click_drag"
+                          checked
+                          class="gf-radio"
+                        /> Click &amp; drag on chart
+                      </label>
+                      <label class="inline-flex items-center gap-1.5">
+                        <input
+                          type="radio"
+                          name="phenology-sel-mode"
+                          value="date_range"
+                          class="gf-radio"
+                        /> Date range
+                      </label>
+                      <label class="inline-flex items-center gap-1.5">
+                        <input
+                          type="radio"
+                          name="phenology-sel-mode"
+                          value="season_index"
+                          class="gf-radio"
+                        /> Season index
+                      </label>
+                    </div>
+                  </div>
+
+                  <div data-sel-group="date_range season_index" class="hidden">
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">
+                      Reference date <span class="font-normal text-gray-400">(year ignored)</span>
+                    </label>
                     <input
-                      type="number"
-                      data-range="doy_min"
-                      min="1"
-                      max="366"
-                      placeholder="min"
-                      aria-label="Selection day-of-year minimum"
-                      class="w-16 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
-                    /> –
-                    <input
-                      type="number"
-                      data-range="doy_max"
-                      min="1"
-                      max="366"
-                      placeholder="max"
-                      aria-label="Selection day-of-year maximum"
-                      class="w-16 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
+                      type="date"
+                      data-sel="date"
+                      value={Date.to_iso8601(Date.utc_today())}
+                      class="rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
                     />
-                  </span>
-                </div>
-                <div>
-                  <span class="block text-xs font-semibold text-gray-600 mb-0.5">
-                    Season index
-                  </span>
-                  <span class="inline-flex items-center gap-1 text-sm text-gray-700">
+                  </div>
+
+                  <div data-sel-group="date_range" class="hidden">
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">
+                      Days before / after
+                    </label>
                     <input
                       type="number"
-                      data-range="seasind_min"
-                      step="0.01"
-                      placeholder="min"
-                      aria-label="Selection season-index minimum"
-                      class="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
-                    /> –
-                    <input
-                      type="number"
-                      data-range="seasind_max"
-                      step="0.01"
-                      placeholder="max"
-                      aria-label="Selection season-index maximum"
-                      class="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
+                      data-sel="days"
+                      min="1"
+                      max="183"
+                      value="10"
+                      class="w-24 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
                     />
-                  </span>
+                  </div>
+
+                  <div data-sel-group="season_index" class="hidden">
+                    <div class="flex items-end gap-3">
+                      <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">
+                          Latitude (°N)
+                        </label>
+                        <input
+                          type="number"
+                          data-sel="lat"
+                          min="-90"
+                          max="90"
+                          step="0.5"
+                          value="40"
+                          class="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">
+                          Tolerance
+                        </label>
+                        <input
+                          type="number"
+                          data-sel="thr"
+                          min="0.005"
+                          max="0.5"
+                          step="0.005"
+                          value="0.05"
+                          class="w-24 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  data-range-clear
-                  style="display: none;"
-                  class="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  Clear selection
-                </button>
+
+                <p data-sel-group="click_drag" class="mt-2 text-xs text-gray-500">
+                  Drag a box on the chart to select observations into the table /
+                  species list below. Click outside the box to clear.
+                </p>
+                <p data-sel-group="date_range" class="hidden mt-2 text-xs text-gray-500">
+                  Selects observations within the chosen number of days of your
+                  reference date (year ignored; wraps across the new year).
+                </p>
+                <p data-sel-group="season_index" class="hidden mt-2 text-xs text-gray-500">
+                  Selects observations at a similar point in the annual daylight
+                  cycle to your reference date at this latitude — comparable
+                  across latitudes even though the calendar dates differ.
+                  Tolerance widens the band.
+                </p>
               </div>
 
-              <.link
-                id="phenology-csv-link"
-                phx-hook="PhenologyCsvLink"
-                href={export_path(@filters, nil)}
-                data-href-base={export_path(@filters, nil)}
-                class="text-xs text-gf-maroon underline"
-              >
-                Download CSV
-              </.link>
+              <div class="mt-2 flex justify-end">
+                <.link
+                  id="phenology-csv-link"
+                  phx-hook="PhenologyCsvLink"
+                  href={export_path(@filters, nil)}
+                  data-href-base={export_path(@filters, nil)}
+                  class="text-xs text-gf-maroon underline"
+                >
+                  Download CSV
+                </.link>
+              </div>
             </div>
 
             <%= cond do %>

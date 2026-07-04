@@ -25,7 +25,7 @@ defmodule GallformersWeb.PhenologyController do
       filters
       |> Phenology.search_observations()
       |> apply_brush(PhenologyFilters.parse_brush(params))
-      |> apply_selection_range(PhenologyFilters.parse_selection_range(params))
+      |> apply_selection(PhenologyFilters.parse_selection(params))
 
     {filename, body} = build_csv(filters[:display_mode], observations)
 
@@ -44,23 +44,29 @@ defmodule GallformersWeb.PhenologyController do
     end)
   end
 
-  # Display-only range lens (day-of-year + season index), mirroring the
-  # client-side applyRange so the CSV matches the on-screen table. Each
-  # bound is optional.
-  defp apply_selection_range(obs, nil), do: obs
+  # Display-only selection lens, mirroring the client-side applySelection so
+  # the CSV matches the on-screen table. Modes are mutually exclusive.
+  defp apply_selection(obs, nil), do: obs
 
-  defp apply_selection_range(obs, range) do
+  defp apply_selection(obs, {:date_range, doy, days}) do
+    min = Integer.mod(doy - days, 365)
+    max = Integer.mod(doy + days, 365)
+
     Enum.filter(obs, fn o ->
-      within?(o.doy, range[:doy_min], range[:doy_max]) and
-        within?(o.seasind, range[:seasind_min], range[:seasind_max])
+      if min <= max, do: o.doy >= min and o.doy <= max, else: o.doy >= min or o.doy <= max
     end)
   end
 
-  defp within?(_value, nil, nil), do: true
+  defp apply_selection(obs, {:season_index, si, thr}) do
+    Enum.filter(obs, fn o ->
+      is_number(o.seasind) and mod_dist(o.seasind, si) <= thr
+    end)
+  end
 
-  defp within?(value, min, max) do
-    (min == nil or (is_number(value) and value >= min)) and
-      (max == nil or (is_number(value) and value <= max))
+  # Circular distance on the 0..1 season-index ring.
+  defp mod_dist(a, b) do
+    d = abs(a - b)
+    min(d, 1 - d)
   end
 
   # The two CSV shapes match what's on screen for the respective display

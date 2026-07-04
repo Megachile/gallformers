@@ -136,28 +136,33 @@ defmodule GallformersWeb.PhenologyLiveTest do
       assert page_title(view) =~ "Phenology"
     end
 
-    test "range-selection lens inputs render in table mode", %{conn: conn} do
+    test "selection-mode controls render in table mode", %{conn: conn} do
       sp = insert_gall("Acraspis tester (agamic)")
       insert_obs(sp.id, %{})
 
       {:ok, _view, html} = live(conn, ~p"/phenology?search=&display=table")
 
-      # The DOY + season-index range inputs (display-only selection lens)
-      # and their hook host are present alongside the table.
-      assert html =~ ~s(phx-hook="PhenologyRangeSelect")
-      assert html =~ ~s(data-range="doy_min")
-      assert html =~ ~s(data-range="doy_max")
-      assert html =~ ~s(data-range="seasind_min")
-      assert html =~ ~s(data-range="seasind_max")
-      assert html =~ "Season index"
+      # The mode switcher (click & drag / date range / season index) and its
+      # per-mode input groups are present alongside the table.
+      assert html =~ ~s(phx-hook="PhenologySelect")
+      assert html =~ ~s(name="phenology-sel-mode")
+      assert html =~ ~s(value="click_drag")
+      assert html =~ ~s(value="date_range")
+      assert html =~ ~s(value="season_index")
+      assert html =~ ~s(data-sel="date")
+      assert html =~ ~s(data-sel="days")
+      assert html =~ ~s(data-sel="lat")
+      assert html =~ ~s(data-sel="thr")
+      # No raw seasind number is ever exposed.
+      refute html =~ ~s(data-sel="seasind")
     end
 
-    test "range-selection lens is absent in predictions mode", %{conn: conn} do
+    test "selection-mode controls are absent in predictions mode", %{conn: conn} do
       sp = insert_gall("Acraspis tester (agamic)")
       insert_obs(sp.id, %{})
 
       {:ok, _view, html} = live(conn, ~p"/phenology?search=")
-      refute html =~ ~s(phx-hook="PhenologyRangeSelect")
+      refute html =~ ~s(phx-hook="PhenologySelect")
     end
 
     test "advanced filters are collapsed by default and toggle open", %{conn: conn} do

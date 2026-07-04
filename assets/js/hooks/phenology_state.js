@@ -12,19 +12,22 @@ export const phenologyState = {
   // lat_max} or null when no brush is active.
   brush: null,
 
-  // Explicit range-input lens: {doy_min, doy_max, seasind_min, seasind_max}
-  // with any subset of keys non-null, or null when no range is set. Applied
-  // in AND with the brush. Unlike the brush it can constrain season index,
-  // which isn't a chart axis.
-  range: null,
+  // Active selection lens, mirroring the legacy doyCalc "Selection mode":
+  //   { mode: 'click_drag' }                       → use the chart brush
+  //   { mode: 'date_range',   doy, days }          → circular DOY window
+  //   { mode: 'season_index', si, thr }            → circular seasind band
+  // Modes are mutually exclusive (a radio picks one), matching the Shiny
+  // app. Season index (si) is precomputed in the select hook from a date +
+  // latitude, so no one has to type a raw seasind value.
+  selection: { mode: 'click_drag' },
 
   setBrush(b) {
     this.brush = b
     listeners.forEach((fn) => fn())
   },
 
-  setRange(r) {
-    this.range = r
+  setSelection(s) {
+    this.selection = s || { mode: 'click_drag' }
     listeners.forEach((fn) => fn())
   },
 
@@ -65,26 +68,49 @@ export function applyBrush(points, brush) {
   )
 }
 
-// Pure JS range-lens filter (day-of-year + season index). Each bound is
-// optional; a null bound doesn't constrain. Mirrors the server's
-// apply_selection_range in the CSV controller so the download matches.
-export function applyRange(points, range) {
-  if (!range) return points
-  const { doy_min, doy_max, seasind_min, seasind_max } = range
-  return points.filter((p) => {
-    if (doy_min != null && !(p.doy >= doy_min)) return false
-    if (doy_max != null && !(p.doy <= doy_max)) return false
-    const s = p.seasind
-    if (seasind_min != null && !(typeof s === 'number' && s >= seasind_min)) return false
-    if (seasind_max != null && !(typeof s === 'number' && s <= seasind_max)) return false
-    return true
-  })
+// Circular day-of-year window [doy-days, doy+days] (mod 365), matching the
+// legacy doyCalc "Date range" mode. Wraps across the year boundary.
+export function applyDateRange(points, { doy, days }) {
+  if (doy == null || days == null) return points
+  const min = mod365(doy - days)
+  const max = mod365(doy + days)
+  return points.filter((p) =>
+    min <= max ? p.doy >= min && p.doy <= max : p.doy >= min || p.doy <= max,
+  )
 }
 
-// The visible selection = brush AND range. Everything that renders the
-// selected obs (table, species list, brush counter) filters through this.
+// Circular season-index band |seasind - si| <= thr, matching the legacy
+// doyCalc "Season index" mode (mod_dist on the 0..1 seasind circle). `si`
+// is precomputed from a date + latitude, so users never type a raw value.
+export function applySeasonIndex(points, { si, thr }) {
+  if (si == null || thr == null) return points
+  return points.filter(
+    (p) => typeof p.seasind === 'number' && modDist(p.seasind, si) <= thr,
+  )
+}
+
+// The visible selection, dispatched on the active mode. Everything that
+// renders the selected obs (table, species list, CSV link) filters through
+// this. Mirrors the server's apply_selection in the CSV controller.
 export function applySelection(points) {
-  return applyRange(applyBrush(points, phenologyState.brush), phenologyState.range)
+  const sel = phenologyState.selection || { mode: 'click_drag' }
+  switch (sel.mode) {
+    case 'date_range':
+      return applyDateRange(points, sel)
+    case 'season_index':
+      return applySeasonIndex(points, sel)
+    default:
+      return applyBrush(points, phenologyState.brush)
+  }
+}
+
+function mod365(x) {
+  return ((x % 365) + 365) % 365
+}
+
+function modDist(a, b) {
+  const d = Math.abs(a - b)
+  return Math.min(d, 1 - d)
 }
 
 // HTML escape for any user-controlled or external-API string interpolated

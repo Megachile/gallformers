@@ -27,21 +27,27 @@ export default {
 
   applyBrush() {
     const base = this.el.dataset.hrefBase || this.el.getAttribute('href') || ''
-    const brush = phenologyState.brush
-    const range = phenologyState.range
     const params = new URLSearchParams()
+    const sel = phenologyState.selection || { mode: 'click_drag' }
 
-    if (brush) {
-      params.set('doy_min', String(brush.doy_min))
-      params.set('doy_max', String(brush.doy_max))
-      params.set('lat_min', String(brush.lat_min))
-      params.set('lat_max', String(brush.lat_max))
-    }
-
-    if (range) {
-      // Distinct param names from the brush so the two lenses can't clash.
-      for (const key of ['doy_min', 'doy_max', 'seasind_min', 'seasind_max']) {
-        if (range[key] != null) params.set(`sel_${key}`, String(range[key]))
+    if (sel.mode === 'date_range') {
+      if (sel.doy != null) params.set('sel_mode', 'date_range')
+      if (sel.doy != null) params.set('sel_doy', String(sel.doy))
+      if (sel.days != null) params.set('sel_days', String(sel.days))
+    } else if (sel.mode === 'season_index') {
+      // Send date + latitude; the server recomputes the season index the
+      // same way the client did, so the two never drift.
+      if (sel.doy != null) params.set('sel_mode', 'season_index')
+      if (sel.doy != null) params.set('sel_doy', String(sel.doy))
+      if (sel.lat != null) params.set('sel_lat', String(sel.lat))
+      if (sel.thr != null) params.set('sel_thr', String(sel.thr))
+    } else {
+      const brush = phenologyState.brush
+      if (brush) {
+        params.set('doy_min', String(brush.doy_min))
+        params.set('doy_max', String(brush.doy_max))
+        params.set('lat_min', String(brush.lat_min))
+        params.set('lat_max', String(brush.lat_max))
       }
     }
 

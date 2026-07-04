@@ -182,40 +182,46 @@ defmodule GallformersWeb.PhenologyControllerTest do
       refute body =~ "Andricus greenish"
     end
 
-    test "sel_doy range narrows the exported CSV (display-only lens)", %{conn: conn} do
+    test "sel_mode=date_range narrows the exported CSV to the DOY window", %{conn: conn} do
       sp = insert_gall("Acraspis erinacei (agamic)")
       insert_obs(sp.id, %{doy: 120, date: ~D[2024-04-29]})
       insert_obs(sp.id, %{doy: 250, date: ~D[2024-09-06]})
 
       body =
         conn
-        |> get(~p"/phenology/export.csv?search=&display=table&sel_doy_min=100&sel_doy_max=150")
+        |> get(
+          ~p"/phenology/export.csv?search=&display=table&sel_mode=date_range&sel_doy=120&sel_days=10"
+        )
         |> response(200)
 
-      lines = body |> String.split("\n", trim: true)
-      # Header + the single in-window (DOY 120) row.
+      # Header + the single in-window (DOY 120, within 120±10) row.
+      lines = String.split(body, "\n", trim: true)
       assert length(lines) == 2
-      assert Enum.at(lines, 1) =~ "120"
-      refute body =~ "250"
+      assert Enum.at(lines, 1) =~ ",120,"
+      refute body =~ ",250,"
     end
 
-    test "sel_seasind range narrows the exported CSV", %{conn: conn} do
+    test "sel_mode=season_index narrows the exported CSV to the seasind band", %{conn: conn} do
+      # Server recomputes the season index from sel_doy + sel_lat exactly as
+      # the client does, so derive the reference value the same way here.
+      si = Gallformers.Phenology.Math.season_index(120, 40.0)
+
       sp = insert_gall("Acraspis erinacei (agamic)")
-      insert_obs(sp.id, %{doy: 120, date: ~D[2024-04-29], seasind: 0.2})
-      insert_obs(sp.id, %{doy: 250, date: ~D[2024-09-06], seasind: 0.8})
+      insert_obs(sp.id, %{doy: 100, date: ~D[2024-04-09], seasind: si})
+      insert_obs(sp.id, %{doy: 260, date: ~D[2024-09-16], seasind: min(si + 0.3, 0.99)})
 
       body =
         conn
         |> get(
-          ~p"/phenology/export.csv?search=&display=table&sel_seasind_min=0.5&sel_seasind_max=1.0"
+          ~p"/phenology/export.csv?search=&display=table&sel_mode=season_index&sel_doy=120&sel_lat=40&sel_thr=0.02"
         )
         |> response(200)
 
-      lines = body |> String.split("\n", trim: true)
+      # Only the obs whose seasind sits inside the ±0.02 band survives.
+      lines = String.split(body, "\n", trim: true)
       assert length(lines) == 2
-      # Only the seasind 0.8 obs (DOY 250) survives.
-      assert Enum.at(lines, 1) =~ "250"
-      refute body =~ ",120,"
+      assert Enum.at(lines, 1) =~ ",100,"
+      refute body =~ ",260,"
     end
 
     test "brush bounds in URL narrow the exported CSV", %{conn: conn} do

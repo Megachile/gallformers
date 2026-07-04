@@ -22,6 +22,7 @@ defmodule GallformersWeb.PhenologyFilters do
     browsers omit the `phenophases` key entirely).
   """
 
+  alias Gallformers.Phenology.Math, as: PhenologyMath
   alias Gallformers.Species
 
   @default_search ["Dryocosmus quercuspalustris"]
@@ -132,31 +133,38 @@ defmodule GallformersWeb.PhenologyFilters do
   end
 
   @doc """
-  Parse the display-only range-lens bounds (`sel_doy_min` / `sel_doy_max` /
-  `sel_seasind_min` / `sel_seasind_max`) from URL params. Returns a map with
-  whichever bounds parse to numbers, or `nil` when none are present. Each
-  bound is independent (unlike the brush, which needs all four).
+  Parse the display-only selection lens from URL params, mirroring the
+  legacy doyCalc "Selection mode". Returns one of:
 
-  The range lens lives entirely client-side; the CSV export reads these so
-  the downloaded file matches the on-screen table's range selection.
+    * `{:date_range, doy, days}`   — center DOY ± days (circular window)
+    * `{:season_index, si, thr}`   — season-index band; `si` is recomputed
+      here from `sel_doy` + `sel_lat` via `Phenology.Math.season_index/2`,
+      the same way the client computed it, so the CSV can't drift
+    * `nil`                        — no lens (or brush handled separately)
+
+  The lens narrows the CSV export only; it never affects predictions.
   """
-  def parse_selection_range(params) when is_map(params) do
-    range =
-      %{}
-      |> put_range_bound(:doy_min, params["sel_doy_min"])
-      |> put_range_bound(:doy_max, params["sel_doy_max"])
-      |> put_range_bound(:seasind_min, params["sel_seasind_min"])
-      |> put_range_bound(:seasind_max, params["sel_seasind_max"])
-
-    if map_size(range) == 0, do: nil, else: range
-  end
-
-  defp put_range_bound(map, key, raw) do
-    case to_number(raw) do
-      {:ok, n} -> Map.put(map, key, n)
-      :error -> map
+  def parse_selection(%{"sel_mode" => "date_range"} = params) do
+    with {:ok, doy} <- to_number(params["sel_doy"]),
+         {:ok, days} <- to_number(params["sel_days"]) do
+      {:date_range, trunc(doy), trunc(days)}
+    else
+      _ -> nil
     end
   end
+
+  def parse_selection(%{"sel_mode" => "season_index"} = params) do
+    with {:ok, doy} <- to_number(params["sel_doy"]),
+         {:ok, lat} <- to_number(params["sel_lat"]),
+         {:ok, thr} <- to_number(params["sel_thr"]) do
+      doy = doy |> trunc() |> min(365) |> max(1)
+      {:season_index, PhenologyMath.season_index(doy, lat), thr}
+    else
+      _ -> nil
+    end
+  end
+
+  def parse_selection(_params), do: nil
 
   # ----------------------------------------------------------------------
   # Search

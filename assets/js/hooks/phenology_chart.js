@@ -24,6 +24,23 @@ const GEN_COLOR = {
   'unknown': '#555555',
 }
 
+// Human-readable legend labels for the encodings above.
+const GEN_LABEL = {
+  'sexgen':  'Sexual',
+  'agamic':  'Agamic',
+  'unknown': 'Unknown',
+}
+
+const PHENO_LABEL = {
+  'developing':  'Developing',
+  'maturing':    'Maturing',
+  'dormant':     'Dormant',
+  'perimature':  'Recently emerged',
+  'oviscar':     'Oviposition scar',
+  'senescent':   'Senescent',
+  'Free-living': 'Free-living',
+}
+
 const MONTH_TICKS  = [1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335]
 const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
@@ -81,7 +98,8 @@ export default {
       return
     }
 
-    const margin = { top: 20, right: 20, bottom: 50, left: 56 }
+    // Right margin holds the generation/phenophase legend.
+    const margin = { top: 20, right: 150, bottom: 50, left: 56 }
     const width  = this.el.clientWidth  - margin.left - margin.right
     const height = this.el.clientHeight - margin.top  - margin.bottom
 
@@ -212,6 +230,54 @@ export default {
           select(this).attr('fill-opacity', 0.55)
           tooltip.style('visibility', 'hidden')
         })
+
+    // Legend in the right margin — color = generation, shape = phenophase.
+    // Built only from the values actually present so it never lists an
+    // encoding the current points don't use.
+    this.drawLegend(svg, points, width)
+  },
+
+  drawLegend(svg, points, width) {
+    const legendX = width + 16
+    const legendSymbol = symbol().size(70)
+    const legend = svg.append('g').attr('class', 'legend')
+    let ly = 4
+
+    const heading = (text) => {
+      legend.append('text')
+        .attr('x', legendX).attr('y', ly).attr('dominant-baseline', 'hanging')
+        .style('font-size', '11px').style('font-weight', '600').style('fill', '#444')
+        .text(text)
+      ly += 18
+    }
+
+    const row = (type, fill, label) => {
+      legend.append('path')
+        .attr('d', legendSymbol.type(type)())
+        .attr('transform', `translate(${legendX + 6},${ly + 3})`)
+        .attr('fill', fill).attr('fill-opacity', 0.7)
+        .attr('stroke', '#222').attr('stroke-width', 0.4)
+      legend.append('text')
+        .attr('x', legendX + 20).attr('y', ly + 3).attr('dominant-baseline', 'middle')
+        .style('font-size', '11px').style('fill', '#444')
+        .text(label)
+      ly += 18
+    }
+
+    const gens = Object.keys(GEN_COLOR)
+      .filter((g) => points.some((d) => (d.generation || 'unknown') === g))
+    if (gens.length) {
+      heading('Generation')
+      gens.forEach((g) => row(symbolCircle, GEN_COLOR[g], GEN_LABEL[g] || g))
+      ly += 8
+    }
+
+    const phenos = Object.keys(PHENO_SYMBOL)
+      .filter((p) => points.some((d) => d.phenophase === p))
+    if (phenos.length) {
+      heading('Phenophase')
+      phenos.forEach((p) => row(PHENO_SYMBOL[p], '#777', PHENO_LABEL[p] || p))
+    }
   }
 }
 

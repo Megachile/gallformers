@@ -330,6 +330,13 @@ defmodule GallformersWeb.PhenologyFilters do
   # Sort order (species list). Display-only, so it never reloads the obs set.
   # ----------------------------------------------------------------------
 
+  @doc """
+  Parses a raw `sort` value into a sort key, for the below-chart sort control
+  which drives its own event rather than the filter form.
+  """
+  @spec sort_from_param(term()) :: :name | :obs_count | :spread | :recency
+  def sort_from_param(value), do: parse_sort(value)
+
   defp parse_sort("obs_count"), do: :obs_count
   defp parse_sort("spread"), do: :spread
   defp parse_sort("recency"), do: :recency

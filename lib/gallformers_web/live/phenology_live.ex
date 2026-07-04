@@ -87,14 +87,16 @@ defmodule GallformersWeb.PhenologyLive do
 
   @impl true
   def handle_event("update_filters", params, socket) do
-    # The region filter is a typeahead, not a form field, so form changes don't
-    # carry it — preserve the current place_id across other-filter edits.
+    # The region filter (typeahead) and species sort live outside this form, so
+    # form changes don't carry them — preserve both across other-filter edits.
+    prior_filters = socket.assigns.filters
+
     new_filters =
       params
       |> PhenologyFilters.from_form_params()
-      |> Map.put(:place_id, socket.assigns.filters[:place_id])
+      |> Map.put(:place_id, prior_filters[:place_id])
+      |> Map.put(:sort, prior_filters[:sort])
 
-    prior_filters = socket.assigns.filters
     obs_changed? = query_affecting_filters_changed?(new_filters, prior_filters)
 
     socket =
@@ -163,6 +165,18 @@ defmodule GallformersWeb.PhenologyLive do
 
   def handle_event("clear_place", _params, socket) do
     {:noreply, apply_place_selection(socket, nil)}
+  end
+
+  # Species-list ordering. Display-only (never reloads obs): update the sort,
+  # patch the URL, and let the render re-sort — the JS table re-sorts off the
+  # host's data-sort, the SSR fallback off species_rows/2.
+  def handle_event("sort_species", %{"sort" => value}, socket) do
+    new_filters = %{socket.assigns.filters | sort: PhenologyFilters.sort_from_param(value)}
+
+    {:noreply,
+     socket
+     |> assign(filters: new_filters)
+     |> push_patch(to: ~p"/phenology?#{PhenologyFilters.to_query(new_filters)}", replace: true)}
   end
 
   # Filters that change the DB query and therefore the on-screen obs set.
@@ -496,24 +510,6 @@ defmodule GallformersWeb.PhenologyLive do
                 </label>
               <% end %>
             </fieldset>
-
-            <div :if={@filters.display_mode == :species_list}>
-              <label for="sort" class="block text-sm font-semibold text-gray-700 mb-1">
-                Sort species by
-              </label>
-              <select name="sort" id="sort" class="gf-select">
-                <%= for {value, label} <- [
-                    {"name", "Name (A–Z)"},
-                    {"obs_count", "Observation count"},
-                    {"spread", "Phenology spread"},
-                    {"recency", "Most recent"}
-                  ] do %>
-                  <option value={value} selected={to_string(@filters.sort) == value}>
-                    {label}
-                  </option>
-                <% end %>
-              </select>
-            </div>
 
             <div>
               <label for="target_lat" class="block text-sm font-semibold text-gray-700 mb-1">
@@ -910,6 +906,31 @@ defmodule GallformersWeb.PhenologyLive do
                   Tolerance widens the band.
                 </p>
               </div>
+
+              <%!-- Species-list ordering. Lives with the below-chart controls
+                    (not the filter form) since it only reorders the list and
+                    never reloads the obs set — hence its own phx-change. --%>
+              <form
+                :if={@filters.display_mode == :species_list}
+                phx-change="sort_species"
+                class="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-3"
+              >
+                <label for="sort" class="block text-xs font-semibold text-gray-600 mb-1">
+                  Sort species by
+                </label>
+                <select name="sort" id="sort" class="gf-select max-w-xs">
+                  <%= for {value, label} <- [
+                      {"name", "Name (A–Z)"},
+                      {"obs_count", "Observation count"},
+                      {"spread", "Phenology spread"},
+                      {"recency", "Most recent"}
+                    ] do %>
+                    <option value={value} selected={to_string(@filters.sort) == value}>
+                      {label}
+                    </option>
+                  <% end %>
+                </select>
+              </form>
 
               <div
                 :if={@filters.display_mode in [:data_table, :species_list]}

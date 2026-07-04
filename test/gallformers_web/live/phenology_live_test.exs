@@ -484,6 +484,19 @@ defmodule GallformersWeb.PhenologyLiveTest do
       {:ok, _view, html} = live(conn, ~p"/phenology?search=&display=species&sort=recency")
       assert gall_link_index(html, many.id) < gall_link_index(html, few.id)
     end
+
+    test "the sort control updates the sort key without reloading obs", %{conn: conn} do
+      # The species table host is phx-update="ignore" (the JS hook owns its
+      # rows and re-sorts off data-sort), so assert the host attribute the
+      # hook reads flips — not the SSR row order, which the LV won't touch.
+      {:ok, view, html} = live(conn, ~p"/phenology?search=&display=species")
+      assert html =~ ~s(data-sort="name")
+
+      reordered = render_hook(view, "sort_species", %{"sort" => "obs_count"})
+      assert reordered =~ ~s(data-sort="obs_count")
+      # Obs set is unchanged — the event only re-sorts.
+      assert reordered =~ "4 observations"
+    end
   end
 
   describe "/phenology trait filter" do

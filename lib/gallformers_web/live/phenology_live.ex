@@ -659,13 +659,12 @@ defmodule GallformersWeb.PhenologyLive do
               class="relative h-[540px] rounded-lg border border-gray-200 bg-white"
             >
             </div>
-            <div
-              :if={@filters.display_mode in [:data_table, :species_list] and @observations != []}
-              class="mt-3"
-            >
+            <div class="mt-3">
               <%!-- Display-only selection lens (port of the doyCalc "Selection
-                    mode"): narrows the table / species list / CSV below. Never
-                    touches the prediction windows. Client-side via the
+                    mode"). Always shown under the chart (like the Shiny
+                    sidebar control) so it's discoverable regardless of display
+                    mode; it narrows the data table / species list / CSV and
+                    never touches the prediction windows. Client-side via the
                     PhenologySelect hook, which shows/hides the per-mode input
                     groups; phx-update="ignore" keeps typed values across LV
                     re-renders. --%>
@@ -770,8 +769,8 @@ defmodule GallformersWeb.PhenologyLive do
                 </div>
 
                 <p data-sel-group="click_drag" class="mt-2 text-xs text-gray-500">
-                  Drag a box on the chart to select observations into the table /
-                  species list below. Click outside the box to clear.
+                  Drag a box on the chart to select observations for the data
+                  table and species list. Click outside the box to clear.
                 </p>
                 <p data-sel-group="date_range" class="hidden mt-2 text-xs text-gray-500">
                   Selects observations within the chosen number of days of your
@@ -785,7 +784,10 @@ defmodule GallformersWeb.PhenologyLive do
                 </p>
               </div>
 
-              <div class="mt-2 flex justify-end">
+              <div
+                :if={@filters.display_mode in [:data_table, :species_list]}
+                class="mt-2 flex justify-end"
+              >
                 <.link
                   id="phenology-csv-link"
                   phx-hook="PhenologyCsvLink"

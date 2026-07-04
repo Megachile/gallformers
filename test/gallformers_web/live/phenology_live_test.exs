@@ -157,12 +157,16 @@ defmodule GallformersWeb.PhenologyLiveTest do
       refute html =~ ~s(data-sel="seasind")
     end
 
-    test "selection-mode controls are absent in predictions mode", %{conn: conn} do
+    test "selection-mode controls are shown in predictions mode too", %{conn: conn} do
+      # The selector sits under the chart in every display mode (like the
+      # Shiny sidebar control) so it's discoverable on the default view; only
+      # the CSV link is gated to the table / species modes.
       sp = insert_gall("Acraspis tester (agamic)")
       insert_obs(sp.id, %{})
 
       {:ok, _view, html} = live(conn, ~p"/phenology?search=")
-      refute html =~ ~s(phx-hook="PhenologySelect")
+      assert html =~ ~s(phx-hook="PhenologySelect")
+      refute html =~ ~s(id="phenology-csv-link")
     end
 
     test "advanced filters are collapsed by default and toggle open", %{conn: conn} do

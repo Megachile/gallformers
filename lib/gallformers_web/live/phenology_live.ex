@@ -36,6 +36,9 @@ defmodule GallformersWeb.PhenologyLive do
         # phenology data, for the taxon selector. Loaded in the live mount
         # alongside observations so the dead render doesn't pay for it.
         taxon_options: [],
+        # Grouped country/state/province options (places with phenology data),
+        # for the geographic selector. Loaded in the live mount like taxa.
+        geo_options: [],
         # Gall-trait checkbox options (location on host / color / shape).
         # Loaded in the live mount too.
         trait_options: %{plant_parts: [], colors: [], shapes: []},
@@ -67,6 +70,7 @@ defmodule GallformersWeb.PhenologyLive do
       if connected?(socket) do
         socket
         |> assign(taxon_options: Phenology.list_taxon_filter_options())
+        |> assign(geo_options: Phenology.list_geo_filter_options())
         |> assign(trait_options: load_trait_options())
         |> load_observations()
         |> compute_predictions()
@@ -142,6 +146,7 @@ defmodule GallformersWeb.PhenologyLive do
     :generation,
     :phenophases,
     :taxon_id,
+    :place_id,
     :plant_part_ids,
     :color_ids,
     :shape_ids,
@@ -279,7 +284,9 @@ defmodule GallformersWeb.PhenologyLive do
   # {group_label, options} pairs for rendering as <optgroup>s. Entries of
   # the same group are contiguous after the sort, so chunk_by preserves the
   # family → tribe → genus ordering.
-  defp grouped_taxa(options) do
+  # Chunk pre-sorted `%{group: ...}` options into `{group, opts}` pairs for
+  # <optgroup>s. Shared by the taxon and geographic selectors.
+  defp grouped_options(options) do
     options
     |> Enum.chunk_by(& &1.group)
     |> Enum.map(fn [%{group: g} | _] = chunk -> {g, chunk} end)
@@ -455,7 +462,7 @@ defmodule GallformersWeb.PhenologyLive do
               </label>
               <select name="taxon" id="taxon" class="gf-select">
                 <option value="" selected={is_nil(@filters[:taxon_id])}>All taxa</option>
-                <optgroup :for={{group, opts} <- grouped_taxa(@taxon_options)} label={group}>
+                <optgroup :for={{group, opts} <- grouped_options(@taxon_options)} label={group}>
                   <option
                     :for={t <- opts}
                     value={t.id}
@@ -468,6 +475,29 @@ defmodule GallformersWeb.PhenologyLive do
               <span class="mt-1 block text-xs text-gray-500">
                 Restricts to species under the chosen family or tribe. For a single
                 genus, use the search box above. Count is species with phenology data.
+              </span>
+            </div>
+
+            <div>
+              <label for="place" class="block text-sm font-semibold text-gray-700 mb-1">
+                Region (country / state / province)
+              </label>
+              <select name="place" id="place" class="gf-select">
+                <option value="" selected={is_nil(@filters[:place_id])}>All regions</option>
+                <optgroup :for={{group, opts} <- grouped_options(@geo_options)} label={group}>
+                  <option
+                    :for={p <- opts}
+                    value={p.id}
+                    selected={@filters[:place_id] == p.id}
+                  >
+                    {p.name} ({p.n_species})
+                  </option>
+                </optgroup>
+              </select>
+              <span class="mt-1 block text-xs text-gray-500">
+                Restricts to species whose documented range covers the chosen region
+                (a country includes its states/provinces). This is the species' known
+                range, not where each observation was recorded.
               </span>
             </div>
 

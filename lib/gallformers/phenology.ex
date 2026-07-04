@@ -139,6 +139,7 @@ defmodule Gallformers.Phenology do
     |> apply_coordinate_filter(filters)
     |> apply_taxon_filter(Map.get(filters, :taxon_id))
     |> apply_trait_filter(filters)
+    |> apply_place_filter(Map.get(filters, :place_id))
     |> Repo.all()
   end
 
@@ -263,6 +264,20 @@ defmodule Gallformers.Phenology do
   defp put_trait(map, _key, []), do: map
   defp put_trait(map, key, list) when is_list(list), do: Map.put(map, key, list)
 
+  # Geographic filter: constrain to species whose curated `gall_range` covers
+  # the selected place OR any place beneath it (selecting a country pulls in
+  # all its states/provinces). Binding-safe via species_id, same as the taxon
+  # and trait filters. This filters on documented range, NOT on observation
+  # coordinates — that's the separate coordinate/map filter.
+  defp apply_place_filter(query, nil), do: query
+
+  defp apply_place_filter(query, place_id) when is_integer(place_id) do
+    species_ids = species_ids_in_place(place_id)
+    from(o in query, where: o.species_id in ^species_ids)
+  end
+
+  defp apply_place_filter(query, _), do: query
+
   @doc """
   Returns the IDs of species that sit under the given `taxonomy` node —
   the node itself or any descendant — via their `species_taxonomy` link.
@@ -365,6 +380,103 @@ defmodule Gallformers.Phenology do
   defp taxon_rank_order("intermediate", _), do: 7
   defp taxon_rank_order("genus", _), do: 8
   defp taxon_rank_order(_, _), do: 9
+
+  @doc """
+  Returns the IDs of gall species whose curated `gall_range` covers the given
+  place or any place beneath it in `place_hierarchy` (a country resolves to
+  all its states/provinces). Returns `[]` for an unknown id.
+  """
+  @spec species_ids_in_place(integer()) :: [integer()]
+  def species_ids_in_place(place_id) when is_integer(place_id) do
+    query = """
+    WITH RECURSIVE descendants(id) AS (
+      SELECT $1::bigint
+      UNION ALL
+      SELECT ph.place_id FROM place_hierarchy ph JOIN descendants d ON ph.parent_id = d.id
+    )
+    SELECT DISTINCT g.species_id
+    FROM gall_range g
+    WHERE g.place_id IN (SELECT id FROM descendants)
+    """
+
+    case Repo.query(query, [place_id]) do
+      {:ok, %{rows: rows}} -> Enum.map(rows, fn [id] -> id end)
+      {:error, _} -> []
+    end
+  end
+
+  @doc """
+  Lists `place` rows (country / state / province) whose `gall_range` covers at
+  least one gall species carrying phenology observations, for the explorer's
+  geographic selector. Only places with data are returned, so the selector
+  can't offer a dead option.
+
+  Each option is a map `%{id, name, group, n_species}`. `group` is the parent
+  country name for a state/province, or "Country" for a country-level entry,
+  so the `<select>` can `optgroup` states under their country. Continents are
+  omitted — no phenology species carry continent-only ranges, and a country
+  roll-up is the coarsest useful grain here.
+  """
+  @spec list_geo_filter_options() :: [map()]
+  def list_geo_filter_options do
+    (country_geo_options() ++ leaf_geo_options())
+    # Country roll-ups first, then states/provinces alphabetized within their
+    # country group.
+    |> Enum.sort_by(&{&1.group != "Country", &1.group, &1.name})
+  end
+
+  # Country roll-ups: each country + its states/provinces (place_hierarchy is
+  # country→state/province directly), counting distinct species with phenology
+  # data ranged anywhere in the country. Surfaces a "United States" option even
+  # though US ranges are stored per-state.
+  defp country_geo_options do
+    query = """
+    WITH pheno_species AS (SELECT DISTINCT species_id FROM phenology_observations),
+    country_places AS (
+      SELECT c.id AS country_id, c.name AS country_name, c.id AS place_id
+      FROM place c WHERE c.type = 'country'
+      UNION ALL
+      SELECT c.id, c.name, ph.place_id
+      FROM place c JOIN place_hierarchy ph ON ph.parent_id = c.id
+      WHERE c.type = 'country'
+    )
+    SELECT cp.country_id, cp.country_name, count(DISTINCT g.species_id) AS n_species
+    FROM country_places cp
+    JOIN gall_range g ON g.place_id = cp.place_id
+    JOIN pheno_species ps ON ps.species_id = g.species_id
+    GROUP BY cp.country_id, cp.country_name
+    """
+
+    run_geo_options(query, fn [id, name, n] ->
+      %{id: id, name: name, group: "Country", n_species: n}
+    end)
+  end
+
+  # State / province leaf options, grouped under their parent country name.
+  defp leaf_geo_options do
+    query = """
+    WITH pheno_species AS (SELECT DISTINCT species_id FROM phenology_observations)
+    SELECT p.id, p.name, parent.name AS country_name, count(DISTINCT g.species_id) AS n_species
+    FROM gall_range g
+    JOIN pheno_species ps ON ps.species_id = g.species_id
+    JOIN place p ON p.id = g.place_id
+    LEFT JOIN place_hierarchy ph ON ph.place_id = p.id
+    LEFT JOIN place parent ON parent.id = ph.parent_id AND parent.type = 'country'
+    WHERE p.type IN ('state', 'province')
+    GROUP BY p.id, p.name, parent.name
+    """
+
+    run_geo_options(query, fn [id, name, country_name, n] ->
+      %{id: id, name: name, group: country_name || "Other", n_species: n}
+    end)
+  end
+
+  defp run_geo_options(query, mapper) do
+    case Repo.query(query, []) do
+      {:ok, %{rows: rows}} -> Enum.map(rows, mapper)
+      {:error, _} -> []
+    end
+  end
 
   @doc """
   Returns observations whose raw and processed phenophase disagree — i.e. an

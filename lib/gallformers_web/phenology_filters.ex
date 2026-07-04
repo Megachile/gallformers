@@ -54,7 +54,8 @@ defmodule GallformersWeb.PhenologyFilters do
       search: parse_search_url(params),
       generation: parse_generation(params["gen"]),
       phenophases: parse_phenophases_url(params),
-      taxon_id: parse_taxon_id(params["taxon"]),
+      taxon_id: parse_positive_id(params["taxon"]),
+      place_id: parse_positive_id(params["place"]),
       plant_part_ids: parse_id_list(params["pp"]),
       color_ids: parse_id_list(params["color"]),
       shape_ids: parse_id_list(params["shape"]),
@@ -78,7 +79,8 @@ defmodule GallformersWeb.PhenologyFilters do
       search: parse_search_value(params["search"]),
       generation: parse_generation(params["generation"]),
       phenophases: parse_phenophases_form(params["phenophases"]),
-      taxon_id: parse_taxon_id(params["taxon"]),
+      taxon_id: parse_positive_id(params["taxon"]),
+      place_id: parse_positive_id(params["place"]),
       plant_part_ids: parse_id_list(params["plant_part_ids"]),
       color_ids: parse_id_list(params["color_ids"]),
       shape_ids: parse_id_list(params["shape_ids"]),
@@ -103,6 +105,7 @@ defmodule GallformersWeb.PhenologyFilters do
     |> maybe_put_gen(filters[:generation])
     |> maybe_put_phen(filters[:phenophases])
     |> maybe_put_taxon(filters[:taxon_id])
+    |> maybe_put_place(filters[:place_id])
     |> maybe_put_id_list(:pp, filters[:plant_part_ids])
     |> maybe_put_id_list(:color, filters[:color_ids])
     |> maybe_put_id_list(:shape, filters[:shape_ids])
@@ -259,21 +262,21 @@ defmodule GallformersWeb.PhenologyFilters do
   # Taxon (family / tribe / genus node id)
   # ----------------------------------------------------------------------
 
-  # A single `taxonomy` node id. Absent / empty / non-positive means "no
-  # taxonomic filter" — the same nil in both URL and form parsing, since
-  # an empty <select> option submits "".
-  defp parse_taxon_id(nil), do: nil
-  defp parse_taxon_id(""), do: nil
+  # A single positive id from a <select> (taxon node or place). Absent /
+  # empty / non-positive means "no filter" — the same nil in both URL and
+  # form parsing, since an empty <select> option submits "".
+  defp parse_positive_id(nil), do: nil
+  defp parse_positive_id(""), do: nil
 
-  defp parse_taxon_id(value) when is_binary(value) do
+  defp parse_positive_id(value) when is_binary(value) do
     case Integer.parse(String.trim(value)) do
       {id, ""} when id > 0 -> id
       _ -> nil
     end
   end
 
-  defp parse_taxon_id(value) when is_integer(value) and value > 0, do: value
-  defp parse_taxon_id(_), do: nil
+  defp parse_positive_id(value) when is_integer(value) and value > 0, do: value
+  defp parse_positive_id(_), do: nil
 
   # ----------------------------------------------------------------------
   # Trait id lists (plant_part / color / shape)
@@ -411,6 +414,11 @@ defmodule GallformersWeb.PhenologyFilters do
     do: query ++ [taxon: id]
 
   defp maybe_put_taxon(query, _), do: query
+
+  defp maybe_put_place(query, id) when is_integer(id) and id > 0,
+    do: query ++ [place: id]
+
+  defp maybe_put_place(query, _), do: query
 
   defp maybe_put_id_list(query, key, ids) when is_list(ids) and ids != [],
     do: query ++ [{key, Enum.join(ids, ",")}]

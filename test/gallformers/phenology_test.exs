@@ -52,6 +52,27 @@ defmodule Gallformers.PhenologyTest do
     Repo.insert_all("gall_shape", [%{species_id: species_id, shape_id: shape_id}])
   end
 
+  # Synthetic place with a guaranteed-unique code (the test-seed DB already
+  # ships real places like US / California, whose codes are unique-constrained).
+  defp insert_place(name, type) do
+    code = "zt-#{System.unique_integer([:positive])}"
+
+    {1, [%{id: id}]} =
+      Repo.insert_all("place", [%{name: name, type: type, code: code}], returning: [:id])
+
+    id
+  end
+
+  defp link_place_hierarchy(parent_id, child_id) do
+    Repo.insert_all("place_hierarchy", [%{parent_id: parent_id, place_id: child_id}])
+  end
+
+  defp link_gall_range(species_id, place_id) do
+    Repo.insert_all("gall_range", [
+      %{species_id: species_id, place_id: place_id, precision: "exact"}
+    ])
+  end
+
   defp valid_attrs(species_id, overrides \\ %{}) do
     Map.merge(
       %{
@@ -445,6 +466,88 @@ defmodule Gallformers.PhenologyTest do
 
       names = Enum.map(results, & &1.species_name) |> Enum.sort()
       assert names == ["Acraspis redball (agamic)", "Acraspis redonly (agamic)"]
+    end
+  end
+
+  describe "geographic filter" do
+    # Testeria (country) → Testalpha, Testbeta (states)
+    # Otherland (country) → Testomega (province)
+    # sp_ca ranged in Testalpha, sp_tx in Testbeta, sp_on in Testomega.
+    # sp_fl is ranged in Testgamma but has NO phenology obs (dead option check).
+    setup do
+      usa = insert_place("Testeria", "country")
+      canada = insert_place("Otherland", "country")
+      ca = insert_place("Testalpha", "state")
+      tx = insert_place("Testbeta", "state")
+      fl = insert_place("Testgamma", "state")
+      on = insert_place("Testomega", "province")
+      link_place_hierarchy(usa, ca)
+      link_place_hierarchy(usa, tx)
+      link_place_hierarchy(usa, fl)
+      link_place_hierarchy(canada, on)
+
+      sp_ca = create_gall_species("Andricus californicus (agamic)")
+      sp_tx = create_gall_species("Belonocnema texana (agamic)")
+      sp_on = create_gall_species("Neuroterus ontario (sexgen)")
+      sp_fl = create_gall_species("Disholcaspis floridana (agamic)")
+      link_gall_range(sp_ca.id, ca)
+      link_gall_range(sp_tx.id, tx)
+      link_gall_range(sp_on.id, on)
+      link_gall_range(sp_fl.id, fl)
+
+      {:ok, _} = Phenology.create_observation(valid_attrs(sp_ca.id))
+      {:ok, _} = Phenology.create_observation(valid_attrs(sp_tx.id))
+      {:ok, _} = Phenology.create_observation(valid_attrs(sp_on.id))
+      # sp_fl intentionally has no observation.
+
+      %{usa: usa, canada: canada, ca: ca, on: on, sp_ca: sp_ca, sp_tx: sp_tx, sp_on: sp_on}
+    end
+
+    test "species_ids_in_place/1 resolves a state and rolls a country up", ctx do
+      assert Phenology.species_ids_in_place(ctx.ca) == [ctx.sp_ca.id]
+
+      usa = Phenology.species_ids_in_place(ctx.usa) |> Enum.sort()
+      assert ctx.sp_ca.id in usa
+      assert ctx.sp_tx.id in usa
+      refute ctx.sp_on.id in usa
+    end
+
+    test "species_ids_in_place/1 returns [] for an unknown id" do
+      assert Phenology.species_ids_in_place(9_999_999) == []
+    end
+
+    test "search_observations filters by state", ctx do
+      results = Phenology.search_observations(%{place_id: ctx.ca})
+      assert Enum.map(results, & &1.species_name) == ["Andricus californicus (agamic)"]
+    end
+
+    test "search_observations rolls a country up to its states", ctx do
+      names =
+        Phenology.search_observations(%{place_id: ctx.usa})
+        |> Enum.map(& &1.species_name)
+        |> Enum.sort()
+
+      assert names == ["Andricus californicus (agamic)", "Belonocnema texana (agamic)"]
+      refute "Neuroterus ontario (sexgen)" in names
+    end
+
+    test "list_geo_filter_options groups states under countries, no dead options", ctx do
+      opts = Phenology.list_geo_filter_options()
+      by_name = Map.new(opts, &{&1.name, &1})
+
+      # Country roll-ups present in the "Country" group with descendant counts.
+      assert by_name["Testeria"].group == "Country"
+      assert by_name["Testeria"].n_species == 2
+      assert by_name["Otherland"].group == "Country"
+
+      # States grouped under their parent country, counted.
+      assert by_name["Testalpha"].group == "Testeria"
+      assert by_name["Testalpha"].n_species == 1
+      assert by_name["Testomega"].group == "Otherland"
+
+      # Testgamma has a ranged species but no phenology obs → not offered.
+      refute Map.has_key?(by_name, "Testgamma")
+      _ = ctx
     end
   end
 

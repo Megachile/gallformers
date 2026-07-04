@@ -44,6 +44,25 @@ defmodule GallformersWeb.PhenologyControllerTest do
     Repo.insert_all("gall_color", [%{species_id: species_id, color_id: color_id}])
   end
 
+  defp insert_place(name, type) do
+    code = "zt-#{System.unique_integer([:positive])}"
+
+    {1, [%{id: id}]} =
+      Repo.insert_all("place", [%{name: name, type: type, code: code}], returning: [:id])
+
+    id
+  end
+
+  defp link_place_hierarchy(parent_id, child_id) do
+    Repo.insert_all("place_hierarchy", [%{parent_id: parent_id, place_id: child_id}])
+  end
+
+  defp link_gall_range(species_id, place_id) do
+    Repo.insert_all("gall_range", [
+      %{species_id: species_id, place_id: place_id, precision: "exact"}
+    ])
+  end
+
   defp insert_obs(species_id, attrs) do
     Map.merge(
       %{
@@ -180,6 +199,27 @@ defmodule GallformersWeb.PhenologyControllerTest do
 
       assert body =~ "Acraspis reddish"
       refute body =~ "Andricus greenish"
+    end
+
+    test "?place= filters the exported obs to species ranged in the region", %{conn: conn} do
+      usa = insert_place("Testeria", "country")
+      ca = insert_place("Testalpha", "state")
+      link_place_hierarchy(usa, ca)
+
+      inside = insert_gall("Andricus californicus (agamic)")
+      outside = insert_gall("Neuroterus ontario (sexgen)")
+      link_gall_range(inside.id, ca)
+      insert_obs(inside.id, %{})
+      insert_obs(outside.id, %{})
+
+      # Selecting the country rolls up to its states.
+      body =
+        conn
+        |> get(~p"/phenology/export.csv?search=&display=table&place=#{usa}")
+        |> response(200)
+
+      assert body =~ "Andricus californicus"
+      refute body =~ "Neuroterus ontario"
     end
 
     test "sel_mode=date_range narrows the exported CSV to the DOY window", %{conn: conn} do

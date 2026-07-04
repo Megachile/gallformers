@@ -70,6 +70,25 @@ defmodule GallformersWeb.PhenologyLiveTest do
     Repo.insert_all("gall_color", [%{species_id: species_id, color_id: color_id}])
   end
 
+  defp insert_place(name, type) do
+    code = "zt-#{System.unique_integer([:positive])}"
+
+    {1, [%{id: id}]} =
+      Repo.insert_all("place", [%{name: name, type: type, code: code}], returning: [:id])
+
+    id
+  end
+
+  defp link_place_hierarchy(parent_id, child_id) do
+    Repo.insert_all("place_hierarchy", [%{parent_id: parent_id, place_id: child_id}])
+  end
+
+  defp link_gall_range(species_id, place_id) do
+    Repo.insert_all("gall_range", [
+      %{species_id: species_id, place_id: place_id, precision: "exact"}
+    ])
+  end
+
   describe "/phenology base rendering" do
     test "renders the page even with no observations", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/phenology")
@@ -355,6 +374,58 @@ defmodule GallformersWeb.PhenologyLiveTest do
       refute html =~ "Eurosta solidaginis"
       # The selected option is marked selected in the rendered <select>.
       assert html =~ ~r/value="#{cynipidae.id}"[^>]*selected/
+    end
+  end
+
+  describe "/phenology geographic filter" do
+    setup do
+      usa = insert_place("Testeria", "country")
+      ca = insert_place("Testalpha", "state")
+      link_place_hierarchy(usa, ca)
+
+      sp_ca = insert_gall("Andricus californicus (agamic)")
+      sp_on = insert_gall("Neuroterus ontario (sexgen)")
+      link_gall_range(sp_ca.id, ca)
+      insert_obs(sp_ca.id, %{})
+      insert_obs(sp_on.id, %{})
+
+      %{usa: usa, ca: ca}
+    end
+
+    test "the selector renders country roll-ups and states with data", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/phenology?search=")
+
+      assert html =~ ~s(<optgroup label="Country">)
+      assert html =~ ~s(<optgroup label="Testeria">)
+      assert html =~ "Testalpha"
+      assert html =~ "All regions"
+    end
+
+    test "selecting a region narrows the obs to species ranged there", %{conn: conn, ca: ca} do
+      {:ok, view, _html} = live(conn, ~p"/phenology?search=")
+
+      html =
+        view
+        |> form("#phenology-filters", %{
+          "search" => "",
+          "generation" => "all",
+          "phenophases" => @all_explorer_phenophases,
+          "place" => to_string(ca)
+        })
+        |> render_change()
+
+      assert html =~ "1 observation"
+      assert html =~ "Andricus californicus"
+      refute html =~ "Neuroterus ontario"
+    end
+
+    test "?place=ID seeds the region filter on mount", %{conn: conn, usa: usa} do
+      {:ok, _view, html} = live(conn, ~p"/phenology?search=&place=#{usa}")
+
+      assert html =~ "1 observation"
+      assert html =~ "Andricus californicus"
+      refute html =~ "Neuroterus ontario"
+      assert html =~ ~r/value="#{usa}"[^>]*selected/
     end
   end
 

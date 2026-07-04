@@ -14,6 +14,7 @@ defmodule GallformersWeb.PhenologyLive do
   alias Gallformers.Galls
   alias Gallformers.Phenology
   alias Gallformers.Phenology.Prediction
+  alias Gallformers.Places
   alias GallformersWeb.PhenologyFilters
 
   @generations [:all, :sexgen, :agamic]
@@ -36,9 +37,11 @@ defmodule GallformersWeb.PhenologyLive do
         # phenology data, for the taxon selector. Loaded in the live mount
         # alongside observations so the dead render doesn't pay for it.
         taxon_options: [],
-        # Grouped country/state/province options (places with phenology data),
-        # for the geographic selector. Loaded in the live mount like taxa.
-        geo_options: [],
+        # Region typeahead state (country / state / province). `selected_place`
+        # is the chosen Place (or nil); place_id lives in `filters`.
+        place_query: "",
+        place_results: [],
+        selected_place: nil,
         # Gall-trait checkbox options (location on host / color / shape).
         # Loaded in the live mount too.
         trait_options: %{plant_parts: [], colors: [], shapes: []},
@@ -70,7 +73,7 @@ defmodule GallformersWeb.PhenologyLive do
       if connected?(socket) do
         socket
         |> assign(taxon_options: Phenology.list_taxon_filter_options())
-        |> assign(geo_options: Phenology.list_geo_filter_options())
+        |> assign(selected_place: load_selected_place(filters[:place_id]))
         |> assign(trait_options: load_trait_options())
         |> load_observations()
         |> compute_predictions()
@@ -84,7 +87,13 @@ defmodule GallformersWeb.PhenologyLive do
 
   @impl true
   def handle_event("update_filters", params, socket) do
-    new_filters = PhenologyFilters.from_form_params(params)
+    # The region filter is a typeahead, not a form field, so form changes don't
+    # carry it — preserve the current place_id across other-filter edits.
+    new_filters =
+      params
+      |> PhenologyFilters.from_form_params()
+      |> Map.put(:place_id, socket.assigns.filters[:place_id])
+
     prior_filters = socket.assigns.filters
     obs_changed? = query_affecting_filters_changed?(new_filters, prior_filters)
 
@@ -137,6 +146,25 @@ defmodule GallformersWeb.PhenologyLive do
     {:noreply, socket}
   end
 
+  # Region typeahead (reuses the site-wide place search). Suggestions come from
+  # Places.search_places_grouped; selecting one sets the place_id filter and
+  # reloads. The obs query rolls a country up to its states, so any level works.
+  def handle_event("search_place", %{"value" => query}, socket) do
+    results =
+      if String.length(query) >= 2, do: Places.search_places_grouped(query, 10), else: []
+
+    {:noreply, assign(socket, place_query: query, place_results: results)}
+  end
+
+  def handle_event("select_place", %{"id" => id_str}, socket) do
+    place = Places.get_place(String.to_integer(id_str))
+    {:noreply, apply_place_selection(socket, place)}
+  end
+
+  def handle_event("clear_place", _params, socket) do
+    {:noreply, apply_place_selection(socket, nil)}
+  end
+
   # Filters that change the DB query and therefore the on-screen obs set.
   # Changing anything NOT in this list (display_mode, target_lat) leaves the
   # obs set untouched — we skip the DB roundtrip AND keep the brush selection
@@ -167,6 +195,34 @@ defmodule GallformersWeb.PhenologyLive do
     # the brush state lives entirely in the chart's JS hook now; it drops
     # itself when the chart re-renders from a new points set.
     load_observations(socket)
+  end
+
+  # Shared by select_place / clear_place: set the region filter, reload obs,
+  # and patch the URL so the filter is deep-linkable.
+  defp apply_place_selection(socket, place) do
+    new_filters = Map.put(socket.assigns.filters, :place_id, place && place.id)
+
+    socket
+    |> assign(filters: new_filters, selected_place: place, place_query: "", place_results: [])
+    |> load_observations()
+    |> compute_predictions()
+    |> push_patch(to: ~p"/phenology?#{PhenologyFilters.to_query(new_filters)}", replace: true)
+  end
+
+  defp load_selected_place(nil), do: nil
+  defp load_selected_place(id) when is_integer(id), do: Places.get_place(id)
+
+  # Label for a place in the region typeahead: "California — United States"
+  # for states/provinces (parent_name is present on search results), just the
+  # name otherwise (e.g. a country, or a re-loaded selection with no parent).
+  defp place_display(place) do
+    parent = Map.get(place, :parent_name)
+
+    if Map.get(place, :type) in ["state", "province"] and parent not in [nil, ""] do
+      "#{place.name} — #{parent}"
+    else
+      place.name
+    end
   end
 
   @impl true
@@ -522,21 +578,19 @@ defmodule GallformersWeb.PhenologyLive do
             </div>
 
             <div>
-              <label for="place" class="block text-sm font-semibold text-gray-700 mb-1">
-                Region (country / state / province)
-              </label>
-              <select name="place" id="place" class="gf-select">
-                <option value="" selected={is_nil(@filters[:place_id])}>All regions</option>
-                <optgroup :for={{group, opts} <- grouped_options(@geo_options)} label={group}>
-                  <option
-                    :for={p <- opts}
-                    value={p.id}
-                    selected={@filters[:place_id] == p.id}
-                  >
-                    {p.name} ({p.n_species})
-                  </option>
-                </optgroup>
-              </select>
+              <.typeahead
+                id="place-filter"
+                label="Region (country / state / province)"
+                placeholder="Search regions…"
+                search_event="search_place"
+                select_event="select_place"
+                clear_event="clear_place"
+                query={@place_query}
+                results={@place_results}
+                selected={@selected_place}
+                group_key={:group}
+                display_fn={&place_display/1}
+              />
               <span class="mt-1 block text-xs text-gray-500">
                 Restricts to species whose documented range covers the chosen region
                 (a country includes its states/provinces). This is the species' known

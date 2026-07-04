@@ -530,25 +530,6 @@ defmodule Gallformers.PhenologyTest do
       assert names == ["Andricus californicus (agamic)", "Belonocnema texana (agamic)"]
       refute "Neuroterus ontario (sexgen)" in names
     end
-
-    test "list_geo_filter_options groups states under countries, no dead options", ctx do
-      opts = Phenology.list_geo_filter_options()
-      by_name = Map.new(opts, &{&1.name, &1})
-
-      # Country roll-ups present in the "Country" group with descendant counts.
-      assert by_name["Testeria"].group == "Country"
-      assert by_name["Testeria"].n_species == 2
-      assert by_name["Otherland"].group == "Country"
-
-      # States grouped under their parent country, counted.
-      assert by_name["Testalpha"].group == "Testeria"
-      assert by_name["Testalpha"].n_species == 1
-      assert by_name["Testomega"].group == "Otherland"
-
-      # Testgamma has a ranged species but no phenology obs → not offered.
-      refute Map.has_key?(by_name, "Testgamma")
-      _ = ctx
-    end
   end
 
   describe "blacklist" do

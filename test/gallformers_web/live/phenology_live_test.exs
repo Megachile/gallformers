@@ -392,31 +392,36 @@ defmodule GallformersWeb.PhenologyLiveTest do
       %{usa: usa, ca: ca}
     end
 
-    test "the selector renders country roll-ups and states with data", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/phenology?search=")
+    test "the region typeahead renders and searches places", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/phenology?search=")
 
-      assert html =~ ~s(<optgroup label="Country">)
-      assert html =~ ~s(<optgroup label="Testeria">)
-      assert html =~ "Testalpha"
-      assert html =~ "All regions"
+      # Typeahead wrapper wired to the place events; no legacy <select>.
+      assert html =~ ~s(id="place-filter")
+      assert html =~ "Region"
+      refute html =~ ~s(name="place")
+
+      # Typing surfaces matching places (states are labelled with their parent).
+      results = render_hook(view, "search_place", %{"value" => "test"})
+      assert results =~ "Testeria"
+      assert results =~ "Testalpha"
     end
 
     test "selecting a region narrows the obs to species ranged there", %{conn: conn, ca: ca} do
       {:ok, view, _html} = live(conn, ~p"/phenology?search=")
 
-      html =
-        view
-        |> form("#phenology-filters", %{
-          "search" => "",
-          "generation" => "all",
-          "phenophases" => @all_explorer_phenophases,
-          "place" => to_string(ca)
-        })
-        |> render_change()
+      html = render_hook(view, "select_place", %{"id" => to_string(ca)})
 
       assert html =~ "1 observation"
       assert html =~ "Andricus californicus"
       refute html =~ "Neuroterus ontario"
+    end
+
+    test "clearing the region restores all obs", %{conn: conn, ca: ca} do
+      {:ok, view, _html} = live(conn, ~p"/phenology?search=&place=#{ca}")
+      assert render(view) =~ "1 observation"
+
+      html = render_hook(view, "clear_place", %{})
+      assert html =~ "2 observations"
     end
 
     test "?place=ID seeds the region filter on mount", %{conn: conn, usa: usa} do
@@ -425,7 +430,8 @@ defmodule GallformersWeb.PhenologyLiveTest do
       assert html =~ "1 observation"
       assert html =~ "Andricus californicus"
       refute html =~ "Neuroterus ontario"
-      assert html =~ ~r/value="#{usa}"[^>]*selected/
+      # The chosen place shows as a selected chip (display name), not a dropdown.
+      assert html =~ "Testeria"
     end
   end
 

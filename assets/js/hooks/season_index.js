@@ -42,6 +42,33 @@ export function seasonIndex(doy, lat) {
   return denominator === 0 ? 0 : numerator / denominator
 }
 
+// Cumulative season index at each DOY 1..365 for a latitude (index 0
+// unused). Computing the whole profile once lets us invert it for several
+// targets cheaply — used to draw the season-index selection band on the
+// chart, where each latitude has its own DOY→seasind curve.
+export function seasindProfile(lat) {
+  const den = trapzEqPos(1, 365, lat) || 1
+  const cum = new Float64Array(366)
+  let c = 0
+  let prevH = 0
+  for (let d = 1; d <= 365; d++) {
+    const h = pos(eq(d, lat))
+    c += ((prevH + h) / 2) / den
+    prevH = h
+    cum[d] = c
+  }
+  return cum
+}
+
+// First DOY whose cumulative season index reaches `target`, given a profile
+// from seasindProfile/1. Mirrors Gallformers.Phenology.Math.doy_for_seasind/2.
+export function doyForSeasindFromProfile(cum, target) {
+  if (target <= 0) return 1
+  if (target >= 1) return 365
+  for (let d = 1; d <= 365; d++) if (cum[d] >= target) return d
+  return 365
+}
+
 // Day-of-year (1–365) for a JS Date, ignoring the year — matches the
 // Shiny app's `format(date, "%j")`.
 export function doyOf(date) {

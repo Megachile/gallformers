@@ -6,6 +6,7 @@ import { brush } from 'd3-brush'
 import { symbol, symbolCircle, symbolTriangle, symbolSquare,
          symbolStar, symbolCross, symbolDiamond, symbolWye } from 'd3-shape'
 import { phenologyState } from './phenology_state'
+import { seasindProfile, doyForSeasindFromProfile } from './season_index'
 
 // Mapping must match `Gallformers.Phenology.Observation.phenophases/0`.
 const PHENO_SYMBOL = {
@@ -57,12 +58,19 @@ export default {
       phenologyState.setBrush(null)
     }
     document.addEventListener('phenology:clear-brush', this._clearBrushListener)
+
+    // Redraw the Date-range / Season-index selection overlay whenever the
+    // selection changes (the select hook publishes on every input). The
+    // brush's own rectangle is drawn by d3-brush, so click_drag mode draws
+    // no custom overlay.
+    this._selectionUnsub = phenologyState.subscribe(() => this.drawSelectionOverlay())
   },
 
   destroyed() {
     if (this._clearBrushListener) {
       document.removeEventListener('phenology:clear-brush', this._clearBrushListener)
     }
+    if (this._selectionUnsub) this._selectionUnsub()
   },
 
   // Only point-set changes drive a chart rebuild now. The brush state
@@ -89,6 +97,12 @@ export default {
 
     select(this.el).selectAll('*').remove()
     this._moveBrush = null
+    // Scales/overlay from a previous render are gone now; null them so the
+    // selection subscriber (which can fire mid-rebuild via setBrush below)
+    // skips until we rebuild them.
+    this._x = null
+    this._y = null
+    this._overlayG = null
     if (points.length === 0) {
       select(this.el).append('div')
         .style('padding', '40px')
@@ -179,6 +193,19 @@ export default {
       .attr('class', 'brush')
       .call(chartBrush)
 
+    // Selection overlay for the Date-range / Season-index modes, drawn above
+    // the brush background but below the points (so points stay visible on
+    // the shading). pointer-events none so it never eats point hovers or
+    // brush drags. Populated by drawSelectionOverlay().
+    this._x = x
+    this._y = y
+    this._width = width
+    this._height = height
+    this._brushG = brushG
+    this._overlayG = svg.append('g')
+      .attr('class', 'selection-overlay')
+      .attr('pointer-events', 'none')
+
     // Programmatically clear the rectangle (called from the chrome's
     // Clear-selection listener). `restoringBrush` suppresses the d3 "end"
     // event the move below would otherwise emit.
@@ -235,6 +262,103 @@ export default {
     // Built only from the values actually present so it never lists an
     // encoding the current points don't use.
     this.drawLegend(svg, points, width)
+
+    // Reflect the current selection (e.g. after a filter-driven rebuild the
+    // user may already have a Date-range / Season-index lens active).
+    this.drawSelectionOverlay()
+  },
+
+  // Draw the Date-range (vertical band) or Season-index (curved seasind
+  // band) selection onto the chart, matching what applySelection filters in
+  // the table. Cleared and redrawn on every selection change. click_drag
+  // draws nothing here — d3-brush renders its own rectangle.
+  drawSelectionOverlay() {
+    const g = this._overlayG
+    const x = this._x
+    const y = this._y
+    if (!g || !x || !y) return
+
+    const sel = phenologyState.selection || { mode: 'click_drag' }
+
+    // Hide the brush rectangle in the non-brush modes without clearing it, so
+    // it (and its d3-brush selection) reappears in place on returning to
+    // Click & drag. display:none also disables brushing in those modes.
+    if (this._brushG) this._brushG.style('display', sel.mode === 'click_drag' ? null : 'none')
+
+    g.selectAll('*').remove()
+    const h = this._height
+    const GREEN = '#2e7d32'
+
+    const band = (x0, x1) =>
+      g.append('rect')
+        .attr('x', x0).attr('y', 0)
+        .attr('width', Math.max(0, x1 - x0)).attr('height', h)
+        .attr('fill', GREEN).attr('fill-opacity', 0.12)
+
+    const vline = (px) =>
+      g.append('line')
+        .attr('x1', px).attr('y1', 0).attr('x2', px).attr('y2', h)
+        .attr('stroke', GREEN).attr('stroke-width', 1).attr('stroke-dasharray', '4 3')
+
+    if (sel.mode === 'date_range') {
+      if (sel.doy == null || sel.days == null) return
+      const lo = mod365(sel.doy - sel.days)
+      const hi = mod365(sel.doy + sel.days)
+      // A window that wraps the new year becomes two bands.
+      const bands = lo <= hi ? [[lo, hi]] : [[0, hi], [lo, 365]]
+      bands.forEach(([a, b]) => band(x(a), x(b)))
+      ;[lo, hi].forEach((d) => vline(x(d)))
+    } else if (sel.mode === 'season_index') {
+      if (sel.si == null || sel.thr == null) return
+
+      // Each latitude has its own DOY→seasind curve, so the band's edges bow
+      // with latitude — precompute a seasind profile per sampled latitude.
+      const [latMin, latMax] = y.domain()
+      const N = 40
+      const samples = []
+      for (let i = 0; i <= N; i++) {
+        const lat = latMin + ((latMax - latMin) * i) / N
+        samples.push({ lat, cum: seasindProfile(lat) })
+      }
+
+      // The DOY-space isopleth for a seasind value, across latitudes.
+      const isopleth = (s) =>
+        samples.map((sm) => [x(doyForSeasindFromProfile(sm.cum, s)), y(sm.lat)])
+
+      const fillBetween = (a, b) => {
+        const left = isopleth(a)
+        const right = isopleth(b)
+        const poly = left.concat(right.slice().reverse())
+        g.append('polygon')
+          .attr('points', poly.map((p) => p.join(',')).join(' '))
+          .attr('fill', GREEN).attr('fill-opacity', 0.12)
+      }
+
+      const edge = (s) =>
+        g.append('path').attr('d', toPath(isopleth(s)))
+          .attr('fill', 'none').attr('stroke', GREEN).attr('stroke-width', 1)
+          .attr('stroke-dasharray', '4 3')
+
+      // Season index is circular: the table filters on mod-distance, so a
+      // band whose reference sits near the year boundary spills past seasind
+      // 1 back to 0 (late December AND early January are one day apart). Mirror
+      // that here — when [si−thr, si+thr] crosses 0 or 1, draw two bands split
+      // at the year end, and dash only the two real selection edges (not the
+      // Jan-1 / Dec-31 plot edges).
+      const loRaw = sel.si - sel.thr
+      const hiRaw = sel.si + sel.thr
+      if (loRaw >= 0 && hiRaw <= 1) {
+        fillBetween(loRaw, hiRaw)
+      } else {
+        const lo = mod1(loRaw)
+        const hi = mod1(hiRaw)
+        fillBetween(lo, 1)
+        fillBetween(0, hi)
+      }
+      edge(mod1(loRaw))
+      edge(mod1(hiRaw))
+    }
+    // click_drag: nothing — the brush draws its own rectangle.
   },
 
   drawLegend(svg, points, width) {
@@ -284,4 +408,16 @@ export default {
 function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+}
+
+function mod365(v) {
+  return ((v % 365) + 365) % 365
+}
+
+function mod1(v) {
+  return ((v % 1) + 1) % 1
+}
+
+function toPath(points) {
+  return points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0]},${p[1]}`).join(' ')
 }

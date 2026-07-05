@@ -16,6 +16,7 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
 
   @notes_values ~w(any with without)
   @direction_values ~w(a b both)
+  @sort_values ~w(gall host type sources)
 
   @impl true
   def mount(_params, session, socket) do
@@ -40,6 +41,8 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
     host_tribe = parse_int(params["htribe"])
     notes = parse_notes(params["notes"])
     direction = parse_direction(params["dir"])
+    sort_field = parse_sort(params["sort"])
+    sort_order = parse_order(params["ord"])
 
     socket =
       socket
@@ -49,6 +52,8 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
       |> assign(:host_tribe, host_tribe)
       |> assign(:notes, notes)
       |> assign(:direction, direction)
+      |> assign(:sort_field, sort_field)
+      |> assign(:sort_order, sort_order)
       |> assign(:gall_tribes, tribe_options(gall_family))
       |> assign(:host_tribes, tribe_options(host_family))
       |> load_discrepancies()
@@ -82,6 +87,16 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
   def handle_event("direction", %{"value" => v}, socket),
     do: {:noreply, push_filter(socket, dir: v)}
 
+  @impl true
+  def handle_event("sort", %{"value" => v}, socket),
+    do: {:noreply, push_filter(socket, sort: v)}
+
+  @impl true
+  def handle_event("toggle_order", _params, socket) do
+    flipped = if socket.assigns.sort_order == :asc, do: :desc, else: :asc
+    {:noreply, push_filter(socket, ord: flipped)}
+  end
+
   # --- Data ------------------------------------------------------------------
 
   defp load_discrepancies(socket) do
@@ -89,7 +104,8 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
       gall_taxon_id: socket.assigns.gall_tribe || socket.assigns.gall_family,
       host_taxon_id: socket.assigns.host_tribe || socket.assigns.host_family,
       has_gf_notes: socket.assigns.notes,
-      direction: socket.assigns.direction
+      direction: socket.assigns.direction,
+      sort: {socket.assigns.sort_field, socket.assigns.sort_order}
     }
 
     result = Galls.host_discrepancies(filter)
@@ -118,7 +134,9 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
       hfam: socket.assigns.host_family,
       htribe: socket.assigns.host_tribe,
       notes: socket.assigns.notes,
-      dir: socket.assigns.direction
+      dir: socket.assigns.direction,
+      sort: socket.assigns.sort_field,
+      ord: socket.assigns.sort_order
     }
 
     params =
@@ -133,6 +151,8 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
   defp put_param(acc, _k, ""), do: acc
   defp put_param(acc, :notes, :any), do: acc
   defp put_param(acc, :dir, :a), do: acc
+  defp put_param(acc, :sort, :gall), do: acc
+  defp put_param(acc, :ord, :asc), do: acc
   defp put_param(acc, k, v), do: Map.put(acc, to_string(k), to_string(v))
 
   defp parse_int(nil), do: nil
@@ -150,6 +170,12 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
 
   defp parse_direction(v) when v in @direction_values, do: String.to_existing_atom(v)
   defp parse_direction(_), do: :a
+
+  defp parse_sort(v) when v in @sort_values, do: String.to_existing_atom(v)
+  defp parse_sort(_), do: :gall
+
+  defp parse_order("desc"), do: :desc
+  defp parse_order(_), do: :asc
 
   defp any_filter?(assigns),
     do: not is_nil(assigns.gall_family) or not is_nil(assigns.host_family)
@@ -266,6 +292,34 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
                   />
                 </form>
               </div>
+
+              <div class="flex items-center gap-2">
+                <label class="text-sm font-medium text-gray-700">Sort:</label>
+                <form phx-change="sort" class="w-32">
+                  <.input
+                    type="select"
+                    name="value"
+                    value={@sort_field}
+                    options={[
+                      {"Gall", "gall"},
+                      {"Host", "host"},
+                      {"Type", "type"},
+                      {"Sources", "sources"}
+                    ]}
+                  />
+                </form>
+                <button
+                  type="button"
+                  phx-click="toggle_order"
+                  class="text-sm text-gray-600 hover:text-gf-maroon px-1"
+                  title="Toggle sort order"
+                >
+                  <.icon
+                    name={if @sort_order == :asc, do: "ph-sort-ascending", else: "ph-sort-descending"}
+                    class="size-5"
+                  />
+                </button>
+              </div>
             </div>
 
             <p :if={not any_filter?(assigns)} class="text-sm text-gray-500 italic py-6 text-center">
@@ -281,7 +335,10 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
 
             <.table :if={any_filter?(assigns) and @items != []} id="host-consistency" rows={@items}>
               <:col :let={d} label="Gall">
-                <.link navigate={~p"/admin/galls/#{d.gall_id}"} class="text-gf-maroon hover:underline">
+                <.link
+                  navigate={~p"/admin/host-consistency/gall/#{d.gall_id}"}
+                  class="text-gf-maroon hover:underline"
+                >
                   {d.gall_name}
                 </.link>
               </:col>

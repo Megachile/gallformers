@@ -26,8 +26,9 @@ defmodule Gallformers.Galls.HostConsistency do
 
   import Ecto.Query
 
-  alias Gallformers.Galls.{GallHost, HostMentions, HostNameMatcher}
+  alias Gallformers.Galls.{GallHost, HostAssociations, HostMentions, HostNameMatcher}
   alias Gallformers.Repo
+  alias Gallformers.Sources.Source
   alias Gallformers.Species.{Alias, Species, SpeciesSource}
   alias Gallformers.Taxonomy.Tree
 
@@ -56,6 +57,7 @@ defmodule Gallformers.Galls.HostConsistency do
           optional(:host_taxon_id) => integer() | nil,
           optional(:direction) => :a | :b | :both,
           optional(:has_gf_notes) => :any | :with | :without,
+          optional(:sort) => {:gall | :host | :type | :sources, :asc | :desc},
           optional(:limit) => pos_integer()
         }
 
@@ -88,6 +90,72 @@ defmodule Gallformers.Galls.HostConsistency do
     end
   end
 
+  @doc """
+  Per-gall detail for the review panel. Returns each structured host with its
+  documented?/undocumented status (Direction A), the gall's source descriptions
+  (with titles), and the unassociated plant mentions (Direction B). `nil` for a
+  missing or non-gall id.
+  """
+  @spec detail(integer()) :: map() | nil
+  def detail(gall_id) do
+    case Repo.get(Species, gall_id) do
+      %Species{taxoncode: "gall"} = gall -> build_detail(gall)
+      _ -> nil
+    end
+  end
+
+  defp build_detail(gall) do
+    descs = gall_descriptions(gall.id)
+    texts = Enum.map(descs, & &1.description)
+    hosts = HostAssociations.get_hosts_for_gall(gall.id)
+
+    host_rows =
+      hosts
+      |> Enum.map(fn h ->
+        host = %{name: h.host_name, genus_placeholder: h.genus_placeholder}
+
+        %{
+          host_id: h.host_species_id,
+          host_name: h.host_name,
+          genus_placeholder: h.genus_placeholder,
+          documented: Enum.any?(texts, &HostNameMatcher.named_in?(host, &1))
+        }
+      end)
+      |> Enum.sort_by(& &1.host_name)
+
+    have = MapSet.new(hosts, & &1.host_species_id)
+    index = plant_index()
+
+    mentions =
+      descs
+      |> Enum.flat_map(fn d -> HostMentions.extract(d.description) end)
+      |> Enum.uniq()
+      |> Enum.reduce(%{}, fn key, acc -> resolve_mention(acc, key, index, have, nil, texts) end)
+      |> Enum.map(fn {id, name} ->
+        %{host_id: id, host_name: name, snippet: snippet_for(name, texts)}
+      end)
+      |> Enum.sort_by(& &1.host_name)
+
+    %{
+      gall_id: gall.id,
+      gall_name: gall.name,
+      hosts: host_rows,
+      sources: descs,
+      mentions: mentions
+    }
+  end
+
+  defp gall_descriptions(gall_id) do
+    from(ss in SpeciesSource,
+      join: src in Source,
+      on: src.id == ss.source_id,
+      where: ss.species_id == ^gall_id and ss.description != "" and not is_nil(ss.description),
+      order_by: src.title,
+      select: %{source_id: ss.source_id, source_title: src.title, description: ss.description}
+    )
+    |> Repo.all()
+  end
+
   defp run(filter, gall_taxon_id, host_taxon_id) do
     limit = filter[:limit] || @default_limit
     has_gf_notes = filter[:has_gf_notes] || :any
@@ -114,10 +182,23 @@ defmodule Gallformers.Galls.HostConsistency do
         do: direction_b(b_gall_ids, descriptions, gall_names, host_taxon_id, has_gf_notes),
         else: []
 
-    all = Enum.sort_by(a_items ++ b_items, &{&1.gall_name, &1.direction, &1.host_name})
+    all = a_items ++ b_items
+    sorted = sort_items(all, filter[:sort])
 
-    %{items: Enum.take(all, limit), total: length(all), truncated: length(all) > limit}
+    %{items: Enum.take(sorted, limit), total: length(all), truncated: length(all) > limit}
   end
+
+  defp sort_items(items, nil), do: Enum.sort_by(items, &default_sort_key/1)
+
+  defp sort_items(items, {field, order}) when order in [:asc, :desc] do
+    Enum.sort_by(items, &sort_key(&1, field), order)
+  end
+
+  defp default_sort_key(d), do: {d.gall_name, to_string(d.direction), d.host_name}
+  defp sort_key(d, :host), do: {d.host_name, d.gall_name}
+  defp sort_key(d, :type), do: {to_string(d.direction), d.gall_name, d.host_name}
+  defp sort_key(d, :sources), do: {d.source_count, d.gall_name}
+  defp sort_key(d, _gall), do: {d.gall_name, d.host_name}
 
   # --- Direction A: host in gallhost, not named in any source ------------------
 

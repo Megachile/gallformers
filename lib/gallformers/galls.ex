@@ -87,6 +87,7 @@ defmodule Gallformers.Galls do
   # =====================================================================
 
   defdelegate host_discrepancies(filter \\ %{}), to: HostConsistency, as: :discrepancies
+  defdelegate host_consistency_detail(gall_id), to: HostConsistency, as: :detail
 
   defdelegate save_gall_host_changes(gall_id, hosts_to_add, hosts_to_remove),
     to: HostAssociations

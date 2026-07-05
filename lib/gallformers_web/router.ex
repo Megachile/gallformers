@@ -88,6 +88,7 @@ defmodule GallformersWeb.Router do
 
     # Host association review queue (host vs. source consistency)
     live "/host-consistency", Admin.HostConsistencyLive, :index
+    live "/host-consistency/gall/:id", Admin.HostConsistencyGallLive, :show
 
     # Gall range review
     live "/gall-range", Admin.GallRangeLive

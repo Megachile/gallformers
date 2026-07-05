@@ -214,6 +214,32 @@ defmodule Gallformers.Galls.HostConsistencyTest do
     assert names == ["#{g} alba", "#{g} bicolor"]
   end
 
+  # --- detail/1 (per-gall panel) ---------------------------------------------
+
+  test "detail/1 returns per-host documented status, sources, and mentions" do
+    g = uniq_alpha()
+    doc = species("#{g} alba", "plant")
+    undoc = species("#{g} stellata", "plant")
+    species("#{g} rubra", "plant")
+    %{gall: gall} = gall_with_note("on #{g} alba; also #{g} rubra nearby")
+    gall_host(gall.id, doc.id)
+    gall_host(gall.id, undoc.id)
+
+    d = Galls.host_consistency_detail(gall.id)
+
+    assert d.gall_id == gall.id
+    status = Map.new(d.hosts, &{&1.host_name, &1.documented})
+    assert status["#{g} alba"] == true
+    assert status["#{g} stellata"] == false
+    assert Enum.any?(d.mentions, &(&1.host_name == "#{g} rubra"))
+    assert length(d.sources) == 1
+  end
+
+  test "detail/1 returns nil for a non-gall id" do
+    host = species("#{uniq_alpha()} alba", "plant")
+    assert Galls.host_consistency_detail(host.id) == nil
+  end
+
   test "direction :both returns undocumented associations and unassociated mentions" do
     g = uniq_alpha()
     # a mentioned-but-unassociated plant (Direction B)

@@ -11,13 +11,12 @@ defmodule GallformersWeb.PhenologyController do
   use GallformersWeb, :controller
 
   alias Gallformers.Phenology
-  alias Gallformers.Phenology.Math, as: PhenologyMath
   alias GallformersWeb.PhenologyFilters
 
   NimbleCSV.define(PhenologyCSV, separator: ",", escape: "\"")
 
   @obs_headers ~w(species phenophase lifestage viability host doy date latitude longitude source_type source_url page_url)
-  @species_headers ~w(species n_obs doy_span latest)
+  @species_headers ~w(species n_obs latest)
 
   def export(conn, params) do
     filters = PhenologyFilters.from_url_params(params)
@@ -81,15 +80,10 @@ defmodule GallformersWeb.PhenologyController do
       |> Enum.map(fn {{_, name}, obs} ->
         latest = obs |> Enum.map(& &1.date) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end)
 
-        %{
-          name: name,
-          n_obs: length(obs),
-          spread: PhenologyMath.doy_span(Enum.map(obs, & &1.doy)),
-          latest: latest
-        }
+        %{name: name, n_obs: length(obs), latest: latest}
       end)
       |> sort_species(sort, sort_dir)
-      |> Enum.map(&[&1.name, &1.n_obs, &1.spread, format_date(&1.latest)])
+      |> Enum.map(&[&1.name, &1.n_obs, format_date(&1.latest)])
 
     body = encode([@species_headers | rows])
     {"phenology_species.csv", body}
@@ -107,9 +101,6 @@ defmodule GallformersWeb.PhenologyController do
 
   defp sort_species(rows, :obs_count, dir),
     do: rows |> Enum.sort_by(& &1.name) |> Enum.sort_by(& &1.n_obs, dir)
-
-  defp sort_species(rows, :spread, dir),
-    do: rows |> Enum.sort_by(& &1.name) |> Enum.sort_by(& &1.spread, dir)
 
   defp sort_species(rows, :recency, dir),
     do:

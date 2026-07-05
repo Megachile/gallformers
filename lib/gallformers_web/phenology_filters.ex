@@ -337,7 +337,7 @@ defmodule GallformersWeb.PhenologyFilters do
   Parses a raw `sort` value into a sort key, for the clickable column-header
   sort control which drives its own event rather than the filter form.
   """
-  @spec sort_from_param(term()) :: :name | :obs_count | :spread | :recency
+  @spec sort_from_param(term()) :: :name | :obs_count | :recency
   def sort_from_param(value), do: parse_sort(value)
 
   @doc """
@@ -353,7 +353,6 @@ defmodule GallformersWeb.PhenologyFilters do
   def default_sort_dir(_), do: :desc
 
   defp parse_sort("obs_count"), do: :obs_count
-  defp parse_sort("spread"), do: :spread
   defp parse_sort("recency"), do: :recency
   defp parse_sort(_), do: :name
 
@@ -469,7 +468,6 @@ defmodule GallformersWeb.PhenologyFilters do
   defp maybe_put_display(query, _), do: query
 
   defp maybe_put_sort(query, :obs_count), do: query ++ [sort: "obs_count"]
-  defp maybe_put_sort(query, :spread), do: query ++ [sort: "spread"]
   defp maybe_put_sort(query, :recency), do: query ++ [sort: "recency"]
   defp maybe_put_sort(query, _), do: query
 

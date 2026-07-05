@@ -184,21 +184,18 @@ function renderSpeciesTable(points, sort, dir) {
     const g = groups.get(p.species_id)
     if (g) {
       g.n_obs += 1
-      g.doys.push(p.doy)
       if (p.date && p.date > g.last_date) g.last_date = p.date
     } else {
       groups.set(p.species_id, {
         species_id: p.species_id,
         name: p.species_name,
         n_obs: 1,
-        doys: [p.doy],
         last_date: p.date || '',
       })
     }
   }
 
   const rows = Array.from(groups.values())
-  for (const r of rows) r.spread = doySpan(r.doys)
   sortSpeciesRows(rows, sort, dir)
 
   const total = rows.length
@@ -210,7 +207,6 @@ function renderSpeciesTable(points, sort, dir) {
         `<tr>
           <td><a href="/gall/${encodeURIComponent(r.species_id)}">${escapeHtml(r.name)}</a></td>
           <td>${r.n_obs}</td>
-          <td>${r.spread}</td>
           <td>${escapeHtml(r.last_date || '—')}</td>
         </tr>`,
     )
@@ -231,27 +227,11 @@ function renderSpeciesTable(points, sort, dir) {
 const SPECIES_COLS = [
   ['Species', 'name'],
   ['Observations', 'obs_count'],
-  ['DOY span', 'spread'],
   ['Latest', 'recency'],
 ]
 
 function defaultDir(key) {
   return key === 'name' ? 'asc' : 'desc'
-}
-
-// Wrap-aware day-of-year span — mirrors Phenology.Math.doy_span/1. The span is
-// the smallest arc of the year covering every obs: 365 minus the largest gap
-// (the off-season), so a fall→spring species straddling the new year reads as
-// a narrow span, not a near-full year.
-function doySpan(doys) {
-  if (doys.length < 2) return 0
-  const sorted = [...doys].sort((a, b) => a - b)
-  let maxGap = 365 - sorted[sorted.length - 1] + sorted[0] // wrap gap
-  for (let i = 1; i < sorted.length; i++) {
-    const g = sorted[i] - sorted[i - 1]
-    if (g > maxGap) maxGap = g
-  }
-  return 365 - maxGap
 }
 
 function speciesHeader(sort, dir) {
@@ -275,9 +255,6 @@ function sortSpeciesRows(rows, sort, dir) {
   switch (sort) {
     case 'obs_count':
       rows.sort((a, b) => sign * (a.n_obs - b.n_obs) || byName(a, b))
-      break
-    case 'spread':
-      rows.sort((a, b) => sign * (a.spread - b.spread) || byName(a, b))
       break
     case 'recency':
       rows.sort((a, b) => sign * (a.last_date || '').localeCompare(b.last_date || '') || byName(a, b))

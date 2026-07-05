@@ -215,7 +215,7 @@ defmodule GallformersWeb.PhenologyControllerTest do
 
       lines = String.split(body, "\n", trim: true)
       # Header, then the higher-count species (Zzz, 2) before the lower (Aaa, 1).
-      assert Enum.at(lines, 0) =~ "species,n_obs,doy_span,latest"
+      assert Enum.at(lines, 0) =~ "species,n_obs,latest"
       assert Enum.at(lines, 1) =~ "Zzz manyobs"
       assert Enum.at(lines, 2) =~ "Aaa fewobs"
     end

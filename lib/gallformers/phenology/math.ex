@@ -105,40 +105,6 @@ defmodule Gallformers.Phenology.Math do
     end
   end
 
-  @doc """
-  Circular span, in days, of a set of day-of-year values: the width of the
-  smallest arc of the year that contains every observation.
-
-  Unlike `max - min`, this is wrap-aware. A fall→spring species whose obs
-  straddle the new year (e.g. DOY 350 and DOY 10) spans ~25 days, not ~340 —
-  the largest gap between consecutive observations around the circle is the
-  *inactive* stretch, so the active span is `365 - largest_gap`. Returns 0
-  for fewer than two observations.
-  """
-  @spec doy_span([integer()]) :: non_neg_integer()
-  def doy_span(doys) when is_list(doys) do
-    case Enum.sort(doys) do
-      [] ->
-        0
-
-      [_only] ->
-        0
-
-      sorted ->
-        # Gaps between consecutive obs, plus the wrap gap from the last back
-        # around to the first. The biggest is the off-season; the rest of the
-        # year is the span that actually contains observations.
-        wrap_gap = 365 - List.last(sorted) + List.first(sorted)
-
-        max_gap =
-          sorted
-          |> Enum.chunk_every(2, 1, :discard)
-          |> Enum.reduce(wrap_gap, fn [a, b], acc -> max(acc, b - a) end)
-
-        365 - max_gap
-    end
-  end
-
   defp search_doy(target_seasind, lat, denominator) do
     1..365
     |> Enum.reduce_while({0.0, 0.0, 1}, fn doy, {prev_seasind, prev_h, _} ->

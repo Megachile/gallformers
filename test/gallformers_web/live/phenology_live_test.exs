@@ -441,7 +441,7 @@ defmodule GallformersWeb.PhenologyLiveTest do
     setup do
       few = insert_gall("Aaa fewobs (agamic)")
       many = insert_gall("Zzz manyobs (agamic)")
-      # `many` has more obs AND a wider DOY span AND a more recent date.
+      # `many` has more obs AND a more recent date.
       insert_obs(few.id, %{doy: 150, date: ~D[2020-06-01]})
       insert_obs(many.id, %{doy: 60, date: ~D[2024-03-01]})
       insert_obs(many.id, %{doy: 200, date: ~D[2024-07-18]})
@@ -483,11 +483,6 @@ defmodule GallformersWeb.PhenologyLiveTest do
 
     test "sort=obs_count orders by observation count desc", %{conn: conn, few: few, many: many} do
       {:ok, _view, html} = live(conn, ~p"/phenology?search=&display=species&sort=obs_count")
-      assert gall_link_index(html, many.id) < gall_link_index(html, few.id)
-    end
-
-    test "sort=spread orders by DOY span desc", %{conn: conn, few: few, many: many} do
-      {:ok, _view, html} = live(conn, ~p"/phenology?search=&display=species&sort=spread")
       assert gall_link_index(html, many.id) < gall_link_index(html, few.id)
     end
 

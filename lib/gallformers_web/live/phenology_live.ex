@@ -13,7 +13,6 @@ defmodule GallformersWeb.PhenologyLive do
 
   alias Gallformers.Galls
   alias Gallformers.Phenology
-  alias Gallformers.Phenology.Math, as: PhenologyMath
   alias Gallformers.Phenology.Prediction
   alias Gallformers.Places
   alias GallformersWeb.PhenologyFilters
@@ -381,7 +380,6 @@ defmodule GallformersWeb.PhenologyLive do
         species_id: id,
         name: name,
         n_obs: length(obs),
-        spread: PhenologyMath.doy_span(Enum.map(obs, & &1.doy)),
         last_date: obs |> Enum.map(& &1.date) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end)
       }
     end)
@@ -394,9 +392,6 @@ defmodule GallformersWeb.PhenologyLive do
 
   defp sort_species_rows(rows, :obs_count, dir),
     do: rows |> Enum.sort_by(& &1.name) |> Enum.sort_by(& &1.n_obs, dir)
-
-  defp sort_species_rows(rows, :spread, dir),
-    do: rows |> Enum.sort_by(& &1.name) |> Enum.sort_by(& &1.spread, dir)
 
   defp sort_species_rows(rows, :recency, dir),
     do:
@@ -1011,12 +1006,6 @@ defmodule GallformersWeb.PhenologyLive do
                       }
                     >
                       {row.n_obs}
-                    </:col>
-                    <:col
-                      :let={row}
-                      label={sort_col_label("DOY span", :spread, @filters.sort, @filters.sort_dir)}
-                    >
-                      {row.spread}
                     </:col>
                     <:col
                       :let={row}

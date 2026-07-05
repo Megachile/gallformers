@@ -27,7 +27,8 @@ defmodule GallformersWeb.PhenologyController do
       |> apply_brush(PhenologyFilters.parse_brush(params))
       |> apply_selection(PhenologyFilters.parse_selection(params))
 
-    {filename, body} = build_csv(filters[:display_mode], observations, filters[:sort])
+    {filename, body} =
+      build_csv(filters[:display_mode], observations, filters[:sort], filters[:sort_dir])
 
     conn
     |> put_resp_content_type("text/csv")
@@ -72,7 +73,7 @@ defmodule GallformersWeb.PhenologyController do
   # The two CSV shapes match what's on screen for the respective display
   # modes; predictions / any other mode gets the full obs table by default
   # so the download is never empty.
-  defp build_csv(:species_list, observations, sort) do
+  defp build_csv(:species_list, observations, sort, sort_dir) do
     rows =
       observations
       |> Enum.group_by(&{&1.species_id, &1.species_name})
@@ -87,31 +88,32 @@ defmodule GallformersWeb.PhenologyController do
           latest: latest
         }
       end)
-      |> sort_species(sort)
+      |> sort_species(sort, sort_dir)
       |> Enum.map(&[&1.name, &1.n_obs, &1.spread, format_date(&1.latest)])
 
     body = encode([@species_headers | rows])
     {"phenology_species.csv", body}
   end
 
-  defp build_csv(_data_table_or_other, observations, _sort) do
+  defp build_csv(_data_table_or_other, observations, _sort, _sort_dir) do
     rows = Enum.map(observations, &obs_to_row/1)
     body = encode([@obs_headers | rows])
     {"phenology_observations.csv", body}
   end
 
-  # Matches Phenology.sort_species_rows/2 (name is the stable tiebreaker) so the
-  # download order agrees with the on-screen species list.
-  defp sort_species(rows, :obs_count), do: Enum.sort_by(rows, &{-&1.n_obs, &1.name})
-  defp sort_species(rows, :spread), do: Enum.sort_by(rows, &{-&1.spread, &1.name})
+  # Mirrors PhenologyLive.sort_species_rows/3 (name-asc pre-pass = stable
+  # tiebreaker) so the download order agrees with the on-screen species list.
+  defp sort_species(rows, :name, dir), do: Enum.sort_by(rows, & &1.name, dir)
 
-  defp sort_species(rows, :recency) do
-    rows
-    |> Enum.sort_by(& &1.name)
-    |> Enum.sort_by(&(&1.latest || ~D[0001-01-01]), {:desc, Date})
-  end
+  defp sort_species(rows, :obs_count, dir),
+    do: rows |> Enum.sort_by(& &1.name) |> Enum.sort_by(& &1.n_obs, dir)
 
-  defp sort_species(rows, _name), do: Enum.sort_by(rows, & &1.name)
+  defp sort_species(rows, :spread, dir),
+    do: rows |> Enum.sort_by(& &1.name) |> Enum.sort_by(& &1.spread, dir)
+
+  defp sort_species(rows, :recency, dir),
+    do:
+      rows |> Enum.sort_by(& &1.name) |> Enum.sort_by(&(&1.latest || ~D[0001-01-01]), {dir, Date})
 
   defp obs_to_row(o) do
     [

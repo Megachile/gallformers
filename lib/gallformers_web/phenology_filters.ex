@@ -61,6 +61,7 @@ defmodule GallformersWeb.PhenologyFilters do
       shape_ids: parse_id_list(params["shape"]),
       display_mode: parse_display_mode(params["display"]),
       sort: parse_sort(params["sort"]),
+      sort_dir: parse_sort_dir(params["dir"], parse_sort(params["sort"])),
       target_lat: parse_target_lat(params["lat"]),
       min_lat: parse_lat_bound(params["min_lat"]),
       max_lat: parse_lat_bound(params["max_lat"]),
@@ -87,6 +88,7 @@ defmodule GallformersWeb.PhenologyFilters do
       shape_ids: parse_id_list(params["shape_ids"]),
       display_mode: parse_display_mode(params["display"]),
       sort: parse_sort(params["sort"]),
+      sort_dir: parse_sort_dir(params["dir"], parse_sort(params["sort"])),
       target_lat: parse_target_lat(params["target_lat"]),
       min_lat: parse_lat_bound(params["min_lat"]),
       max_lat: parse_lat_bound(params["max_lat"]),
@@ -113,6 +115,7 @@ defmodule GallformersWeb.PhenologyFilters do
     |> maybe_put_id_list(:shape, filters[:shape_ids])
     |> maybe_put_display(filters[:display_mode])
     |> maybe_put_sort(filters[:sort])
+    |> maybe_put_dir(filters[:sort], filters[:sort_dir])
     |> maybe_put_lat(filters[:target_lat])
     |> maybe_put_coord(:min_lat, filters[:min_lat])
     |> maybe_put_coord(:max_lat, filters[:max_lat])
@@ -331,16 +334,32 @@ defmodule GallformersWeb.PhenologyFilters do
   # ----------------------------------------------------------------------
 
   @doc """
-  Parses a raw `sort` value into a sort key, for the below-chart sort control
-  which drives its own event rather than the filter form.
+  Parses a raw `sort` value into a sort key, for the clickable column-header
+  sort control which drives its own event rather than the filter form.
   """
   @spec sort_from_param(term()) :: :name | :obs_count | :spread | :recency
   def sort_from_param(value), do: parse_sort(value)
+
+  @doc """
+  Parses a raw `dir` value into `:asc` / `:desc`, falling back to the natural
+  default for `key` (name ascending, everything else descending).
+  """
+  @spec sort_dir_from_param(term(), atom()) :: :asc | :desc
+  def sort_dir_from_param(value, key), do: parse_sort_dir(value, key)
+
+  @doc "Natural sort direction for a species-list sort key."
+  @spec default_sort_dir(atom()) :: :asc | :desc
+  def default_sort_dir(:name), do: :asc
+  def default_sort_dir(_), do: :desc
 
   defp parse_sort("obs_count"), do: :obs_count
   defp parse_sort("spread"), do: :spread
   defp parse_sort("recency"), do: :recency
   defp parse_sort(_), do: :name
+
+  defp parse_sort_dir("asc", _key), do: :asc
+  defp parse_sort_dir("desc", _key), do: :desc
+  defp parse_sort_dir(_other, key), do: default_sort_dir(key)
 
   # ----------------------------------------------------------------------
   # Target latitude
@@ -453,6 +472,12 @@ defmodule GallformersWeb.PhenologyFilters do
   defp maybe_put_sort(query, :spread), do: query ++ [sort: "spread"]
   defp maybe_put_sort(query, :recency), do: query ++ [sort: "recency"]
   defp maybe_put_sort(query, _), do: query
+
+  # Only emit `dir` when it differs from the key's natural default, keeping
+  # URLs clean (an absent `dir` round-trips back to the default).
+  defp maybe_put_dir(query, key, dir) do
+    if dir == default_sort_dir(key), do: query, else: query ++ [dir: to_string(dir)]
+  end
 
   defp maybe_put_lat(query, lat) when is_number(lat) do
     if lat == @default_target_lat, do: query, else: query ++ [lat: to_string(lat)]

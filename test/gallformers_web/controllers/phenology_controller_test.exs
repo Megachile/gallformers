@@ -220,6 +220,24 @@ defmodule GallformersWeb.PhenologyControllerTest do
       assert Enum.at(lines, 2) =~ "Aaa fewobs"
     end
 
+    test "?dir=asc reverses the species CSV order", %{conn: conn} do
+      few = insert_gall("Aaa fewobs (agamic)")
+      many = insert_gall("Zzz manyobs (agamic)")
+      insert_obs(few.id, %{})
+      insert_obs(many.id, %{})
+      insert_obs(many.id, %{date: ~D[2024-07-01], doy: 183})
+
+      body =
+        conn
+        |> get(~p"/phenology/export.csv?search=&display=species&sort=obs_count&dir=asc")
+        |> response(200)
+
+      lines = String.split(body, "\n", trim: true)
+      # Ascending count → the 1-obs species (Aaa) precedes the 2-obs one (Zzz).
+      assert Enum.at(lines, 1) =~ "Aaa fewobs"
+      assert Enum.at(lines, 2) =~ "Zzz manyobs"
+    end
+
     test "?place= filters the exported obs to species ranged in the region", %{conn: conn} do
       usa = insert_place("Testeria", "country")
       ca = insert_place("Testalpha", "state")

@@ -96,6 +96,7 @@ defmodule GallformersWeb.PhenologyLive do
       |> PhenologyFilters.from_form_params()
       |> Map.put(:place_id, prior_filters[:place_id])
       |> Map.put(:sort, prior_filters[:sort])
+      |> Map.put(:sort_dir, prior_filters[:sort_dir])
 
     obs_changed? = query_affecting_filters_changed?(new_filters, prior_filters)
 
@@ -167,11 +168,13 @@ defmodule GallformersWeb.PhenologyLive do
     {:noreply, apply_place_selection(socket, nil)}
   end
 
-  # Species-list ordering. Display-only (never reloads obs): update the sort,
-  # patch the URL, and let the render re-sort — the JS table re-sorts off the
-  # host's data-sort, the SSR fallback off species_rows/2.
-  def handle_event("sort_species", %{"sort" => value}, socket) do
-    new_filters = %{socket.assigns.filters | sort: PhenologyFilters.sort_from_param(value)}
+  # Species-list ordering. Display-only (never reloads obs): update the sort
+  # key + direction, patch the URL, and let the render re-sort — the JS table
+  # re-sorts off the host's data-sort/-dir, the SSR fallback off species_rows/3.
+  def handle_event("sort_species", %{"sort" => value} = params, socket) do
+    key = PhenologyFilters.sort_from_param(value)
+    dir = PhenologyFilters.sort_dir_from_param(params["dir"], key)
+    new_filters = %{socket.assigns.filters | sort: key, sort_dir: dir}
 
     {:noreply,
      socket
@@ -369,7 +372,7 @@ defmodule GallformersWeb.PhenologyLive do
   # Collapses the obs list to one row per species with obs count, day-of-year
   # span, and latest-observation date attached, ordered by `sort`. Used by the
   # species_list display mode (the JS table mirrors this ordering client-side).
-  defp species_rows(observations, sort) do
+  defp species_rows(observations, sort, sort_dir) do
     observations
     |> Enum.group_by(&{&1.species_id, &1.species_name})
     |> Enum.map(fn {{id, name}, obs} ->
@@ -383,32 +386,34 @@ defmodule GallformersWeb.PhenologyLive do
         last_date: obs |> Enum.map(& &1.date) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end)
       }
     end)
-    |> sort_species_rows(sort)
+    |> sort_species_rows(sort, sort_dir)
   end
 
-  # Name is the tiebreaker (and default) so the order is stable.
-  defp sort_species_rows(rows, :obs_count), do: Enum.sort_by(rows, &{-&1.n_obs, &1.name})
-  defp sort_species_rows(rows, :spread), do: Enum.sort_by(rows, &{-&1.spread, &1.name})
+  # Every column is sortable both ways. Name is the stable ascending tiebreaker
+  # (via a name-asc pre-pass) so equal values keep a predictable order.
+  defp sort_species_rows(rows, :name, dir), do: Enum.sort_by(rows, & &1.name, dir)
 
-  defp sort_species_rows(rows, :recency) do
-    # Stable two-pass: name asc first, then latest-date desc keeps name as the
-    # ascending tiebreaker within a date.
-    rows
-    |> Enum.sort_by(& &1.name)
-    |> Enum.sort_by(&(&1.last_date || ~D[0001-01-01]), {:desc, Date})
-  end
+  defp sort_species_rows(rows, :obs_count, dir),
+    do: rows |> Enum.sort_by(& &1.name) |> Enum.sort_by(& &1.n_obs, dir)
 
-  defp sort_species_rows(rows, _name), do: Enum.sort_by(rows, & &1.name)
+  defp sort_species_rows(rows, :spread, dir),
+    do: rows |> Enum.sort_by(& &1.name) |> Enum.sort_by(& &1.spread, dir)
+
+  defp sort_species_rows(rows, :recency, dir),
+    do:
+      rows
+      |> Enum.sort_by(& &1.name)
+      |> Enum.sort_by(&(&1.last_date || ~D[0001-01-01]), {dir, Date})
 
   # Header label for the species table's sortable columns — appends a direction
-  # arrow to whichever column is the active sort. The columns ARE the sort keys
-  # (the JS table makes these headers clickable), so no separate control exists.
-  defp sort_col_label(text, key, active) when key == active, do: text <> sort_arrow(key)
-  defp sort_col_label(text, _key, _active), do: text
+  # arrow (▲ asc / ▼ desc) to whichever column is the active sort. The columns
+  # ARE the sort keys (the JS table makes these headers clickable), so no
+  # separate control exists.
+  defp sort_col_label(text, key, active, dir) when key == active, do: text <> sort_arrow(dir)
+  defp sort_col_label(text, _key, _active, _dir), do: text
 
-  # Name sorts ascending (A–Z); the numeric/date columns sort descending.
-  defp sort_arrow(:name), do: " ▲"
-  defp sort_arrow(_), do: " ▼"
+  defp sort_arrow(:asc), do: " ▲"
+  defp sort_arrow(:desc), do: " ▼"
 
   # Path for the CSV export endpoint, preserving the current filter state.
   # The brush selection (if any) is appended client-side by the
@@ -984,28 +989,40 @@ defmodule GallformersWeb.PhenologyLive do
                   data-mode="species"
                   data-version={@obs_version}
                   data-sort={to_string(@filters.sort)}
+                  data-sort-dir={to_string(@filters.sort_dir)}
                   class="mt-3 max-h-[60vh] overflow-auto rounded-lg border border-gray-200 bg-white"
                 >
                   <%!-- SSR / no-JS fallback only — see comment on the
                         obs-table host above. --%>
                   <.table
                     id="phenology-species-table"
-                    rows={species_rows(@observations, @filters.sort)}
+                    rows={species_rows(@observations, @filters.sort, @filters.sort_dir)}
                     variant="compact"
                   >
-                    <:col :let={row} label={sort_col_label("Species", :name, @filters.sort)}>
+                    <:col
+                      :let={row}
+                      label={sort_col_label("Species", :name, @filters.sort, @filters.sort_dir)}
+                    >
                       <.link href={~p"/gall/#{row.species_id}"}>{row.name}</.link>
                     </:col>
                     <:col
                       :let={row}
-                      label={sort_col_label("Observations", :obs_count, @filters.sort)}
+                      label={
+                        sort_col_label("Observations", :obs_count, @filters.sort, @filters.sort_dir)
+                      }
                     >
                       {row.n_obs}
                     </:col>
-                    <:col :let={row} label={sort_col_label("DOY span", :spread, @filters.sort)}>
+                    <:col
+                      :let={row}
+                      label={sort_col_label("DOY span", :spread, @filters.sort, @filters.sort_dir)}
+                    >
                       {row.spread}
                     </:col>
-                    <:col :let={row} label={sort_col_label("Latest", :recency, @filters.sort)}>
+                    <:col
+                      :let={row}
+                      label={sort_col_label("Latest", :recency, @filters.sort, @filters.sort_dir)}
+                    >
                       {format_obs_date(row.last_date)}
                     </:col>
                   </.table>

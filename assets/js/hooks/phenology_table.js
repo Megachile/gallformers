@@ -31,17 +31,27 @@ export default {
     this._lastVersion = this.el.dataset.version || ''
     this._lastMode = this.el.dataset.mode || ''
     this._lastSort = this.el.dataset.sort || ''
+    this._lastDir = this.el.dataset.sortDir || ''
 
     // Clicking a species-table column header sorts by that column. Delegated
     // on the host so it survives innerHTML re-renders. The server round-trips
-    // sort_species → new data-sort on the host → updated() re-renders (one
-    // source of truth), so we don't re-sort locally here.
+    // sort_species → new data-sort/-dir on the host → updated() re-renders
+    // (one source of truth), so we don't re-sort locally here.
     this._onHeaderActivate = (e) => {
       if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return
       const th = e.target.closest('th[data-sort-key]')
       if (!th || !this.el.contains(th)) return
       if (e.type === 'keydown') e.preventDefault()
-      this.pushEvent('sort_species', { sort: th.dataset.sortKey })
+      const key = th.dataset.sortKey
+      // Re-clicking the active column flips direction; a new column starts in
+      // its natural direction (name asc, the numeric/date columns desc).
+      const dir =
+        key === this.el.dataset.sort
+          ? this.el.dataset.sortDir === 'asc'
+            ? 'desc'
+            : 'asc'
+          : defaultDir(key)
+      this.pushEvent('sort_species', { sort: key, dir })
     }
     this.el.addEventListener('click', this._onHeaderActivate)
     this.el.addEventListener('keydown', this._onHeaderActivate)
@@ -55,10 +65,17 @@ export default {
     const v = this.el.dataset.version || ''
     const m = this.el.dataset.mode || ''
     const s = this.el.dataset.sort || ''
-    if (v !== this._lastVersion || m !== this._lastMode || s !== this._lastSort) {
+    const d = this.el.dataset.sortDir || ''
+    if (
+      v !== this._lastVersion ||
+      m !== this._lastMode ||
+      s !== this._lastSort ||
+      d !== this._lastDir
+    ) {
       this._lastVersion = v
       this._lastMode = m
       this._lastSort = s
+      this._lastDir = d
       this.render()
     }
   },
@@ -77,7 +94,11 @@ export default {
     const mode = this.el.dataset.mode || 'table'
 
     if (mode === 'species') {
-      this.el.innerHTML = renderSpeciesTable(filtered, this.el.dataset.sort || 'name')
+      this.el.innerHTML = renderSpeciesTable(
+        filtered,
+        this.el.dataset.sort || 'name',
+        this.el.dataset.sortDir || 'asc',
+      )
     } else {
       this.el.innerHTML = renderObsTable(filtered)
     }
@@ -157,7 +178,7 @@ function formatCoord(c) {
 // Species list (one row per species with obs count)
 // ---------------------------------------------------------------------
 
-function renderSpeciesTable(points, sort) {
+function renderSpeciesTable(points, sort, dir) {
   const groups = new Map()
   for (const p of points) {
     const g = groups.get(p.species_id)
@@ -180,7 +201,7 @@ function renderSpeciesTable(points, sort) {
 
   const rows = Array.from(groups.values())
   for (const r of rows) r.spread = r.doy_max - r.doy_min
-  sortSpeciesRows(rows, sort)
+  sortSpeciesRows(rows, sort, dir)
 
   const total = rows.length
   const shown = Math.min(total, SPECIES_ROW_CAP)
@@ -200,14 +221,15 @@ function renderSpeciesTable(points, sort) {
   return `
     ${truncationNotice(shown, total, 'species')}
     <table id="phenology-species-table" class="gf-table gf-table-compact gf-table-zebra">
-      <thead><tr>${speciesHeader(sort)}</tr></thead>
+      <thead><tr>${speciesHeader(sort, dir)}</tr></thead>
       <tbody>${body}</tbody>
     </table>
   `
 }
 
-// The four columns ARE the sort keys — clicking a header sorts by it (no
-// separate control). Server sort_species/2 mirrors these keys.
+// The four columns ARE the sort keys — clicking a header sorts by it, and
+// re-clicking flips direction (no separate control). Server sort_species
+// mirrors these keys; defaultDir mirrors PhenologyFilters.default_sort_dir/1.
 const SPECIES_COLS = [
   ['Species', 'name'],
   ['Observations', 'obs_count'],
@@ -215,12 +237,16 @@ const SPECIES_COLS = [
   ['Latest', 'recency'],
 ]
 
-function speciesHeader(sort) {
+function defaultDir(key) {
+  return key === 'name' ? 'asc' : 'desc'
+}
+
+function speciesHeader(sort, dir) {
   return SPECIES_COLS.map(([label, key]) => {
     const active = key === sort
-    const arrow = active ? (key === 'name' ? ' ▲' : ' ▼') : ''
+    const arrow = active ? (dir === 'asc' ? ' ▲' : ' ▼') : ''
     const style = `cursor:pointer;user-select:none;white-space:nowrap;${active ? 'font-weight:700;' : ''}`
-    const ariaSort = active ? (key === 'name' ? 'ascending' : 'descending') : 'none'
+    const ariaSort = active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'
     return (
       `<th data-sort-key="${key}" role="button" tabindex="0" aria-sort="${ariaSort}" ` +
       `title="Sort by ${escapeHtml(label)}" style="${style}">${escapeHtml(label)}${arrow}</th>`
@@ -228,20 +254,22 @@ function speciesHeader(sort) {
   }).join('')
 }
 
-// Mirrors Phenology.sort_species_rows/2 (name is the stable tiebreaker).
-function sortSpeciesRows(rows, sort) {
+// Mirrors PhenologyLive.sort_species_rows/3 (name is the stable ascending
+// tiebreaker; `dir` flips the primary key). sign = +1 asc, -1 desc.
+function sortSpeciesRows(rows, sort, dir) {
   const byName = (a, b) => (a.name || '').localeCompare(b.name || '')
+  const sign = dir === 'asc' ? 1 : -1
   switch (sort) {
     case 'obs_count':
-      rows.sort((a, b) => b.n_obs - a.n_obs || byName(a, b))
+      rows.sort((a, b) => sign * (a.n_obs - b.n_obs) || byName(a, b))
       break
     case 'spread':
-      rows.sort((a, b) => b.spread - a.spread || byName(a, b))
+      rows.sort((a, b) => sign * (a.spread - b.spread) || byName(a, b))
       break
     case 'recency':
-      rows.sort((a, b) => (b.last_date || '').localeCompare(a.last_date || '') || byName(a, b))
+      rows.sort((a, b) => sign * (a.last_date || '').localeCompare(b.last_date || '') || byName(a, b))
       break
     default:
-      rows.sort(byName)
+      rows.sort((a, b) => sign * byName(a, b))
   }
 }

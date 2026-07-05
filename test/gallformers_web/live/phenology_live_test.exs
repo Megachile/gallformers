@@ -456,12 +456,24 @@ defmodule GallformersWeb.PhenologyLiveTest do
       # No separate dropdown/form — the column headers do the sorting.
       refute default =~ ~s(name="sort")
       refute default =~ ~s(phx-change="sort_species")
-      # Default sort = name → the Species header carries the ascending arrow.
+      # Default sort = name, ascending → Species header carries the ▲ arrow.
       assert default =~ "Species ▲"
 
       {:ok, _view, by_obs} = live(conn, ~p"/phenology?search=&display=species&sort=obs_count")
       assert by_obs =~ "Observations ▼"
       refute by_obs =~ "Species ▲"
+    end
+
+    test "the direction arrow reflects the dir param", %{conn: conn} do
+      {:ok, _view, obs_asc} =
+        live(conn, ~p"/phenology?search=&display=species&sort=obs_count&dir=asc")
+
+      assert obs_asc =~ "Observations ▲"
+
+      {:ok, _view, name_desc} =
+        live(conn, ~p"/phenology?search=&display=species&sort=name&dir=desc")
+
+      assert name_desc =~ "Species ▼"
     end
 
     test "default sort is alphabetical by name", %{conn: conn, few: few, many: many} do
@@ -488,17 +500,31 @@ defmodule GallformersWeb.PhenologyLiveTest do
       assert gall_link_index(html, many.id) < gall_link_index(html, few.id)
     end
 
-    test "the sort control updates the sort key without reloading obs", %{conn: conn} do
+    test "dir=asc reverses the ordering", %{conn: conn, few: few, many: many} do
+      {:ok, _view, html} =
+        live(conn, ~p"/phenology?search=&display=species&sort=obs_count&dir=asc")
+
+      # Ascending obs count → the 1-obs species now precedes the 3-obs one.
+      assert gall_link_index(html, few.id) < gall_link_index(html, many.id)
+    end
+
+    test "the sort control updates key + direction without reloading obs", %{conn: conn} do
       # The species table host is phx-update="ignore" (the JS hook owns its
-      # rows and re-sorts off data-sort), so assert the host attribute the
-      # hook reads flips — not the SSR row order, which the LV won't touch.
+      # rows and re-sorts off data-sort/-dir), so assert the host attributes
+      # the hook reads flip — not the SSR row order, which the LV won't touch.
       {:ok, view, html} = live(conn, ~p"/phenology?search=&display=species")
       assert html =~ ~s(data-sort="name")
+      assert html =~ ~s(data-sort-dir="asc")
 
-      reordered = render_hook(view, "sort_species", %{"sort" => "obs_count"})
-      assert reordered =~ ~s(data-sort="obs_count")
+      sorted = render_hook(view, "sort_species", %{"sort" => "obs_count", "dir" => "desc"})
+      assert sorted =~ ~s(data-sort="obs_count")
+      assert sorted =~ ~s(data-sort-dir="desc")
       # Obs set is unchanged — the event only re-sorts.
-      assert reordered =~ "4 observations"
+      assert sorted =~ "4 observations"
+
+      # Re-clicking the same column flips direction.
+      toggled = render_hook(view, "sort_species", %{"sort" => "obs_count", "dir" => "asc"})
+      assert toggled =~ ~s(data-sort-dir="asc")
     end
   end
 

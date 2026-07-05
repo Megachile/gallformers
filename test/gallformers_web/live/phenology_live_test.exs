@@ -451,14 +451,17 @@ defmodule GallformersWeb.PhenologyLiveTest do
 
     defp gall_link_index(html, id), do: elem(:binary.match(html, "/gall/#{id}"), 0)
 
-    test "sort control renders only in species-list mode", %{conn: conn} do
-      {:ok, _view, species} = live(conn, ~p"/phenology?search=&display=species")
-      assert species =~ ~s(name="sort")
-      assert species =~ "Phenology spread"
-      assert species =~ "Most recent"
+    test "the columns are the sort control — active arrow, no dropdown", %{conn: conn} do
+      {:ok, _view, default} = live(conn, ~p"/phenology?search=&display=species")
+      # No separate dropdown/form — the column headers do the sorting.
+      refute default =~ ~s(name="sort")
+      refute default =~ ~s(phx-change="sort_species")
+      # Default sort = name → the Species header carries the ascending arrow.
+      assert default =~ "Species ▲"
 
-      {:ok, _view, table} = live(conn, ~p"/phenology?search=&display=table")
-      refute table =~ ~s(name="sort")
+      {:ok, _view, by_obs} = live(conn, ~p"/phenology?search=&display=species&sort=obs_count")
+      assert by_obs =~ "Observations ▼"
+      refute by_obs =~ "Species ▲"
     end
 
     test "default sort is alphabetical by name", %{conn: conn, few: few, many: many} do

@@ -400,6 +400,16 @@ defmodule GallformersWeb.PhenologyLive do
 
   defp sort_species_rows(rows, _name), do: Enum.sort_by(rows, & &1.name)
 
+  # Header label for the species table's sortable columns — appends a direction
+  # arrow to whichever column is the active sort. The columns ARE the sort keys
+  # (the JS table makes these headers clickable), so no separate control exists.
+  defp sort_col_label(text, key, active) when key == active, do: text <> sort_arrow(key)
+  defp sort_col_label(text, _key, _active), do: text
+
+  # Name sorts ascending (A–Z); the numeric/date columns sort descending.
+  defp sort_arrow(:name), do: " ▲"
+  defp sort_arrow(_), do: " ▼"
+
   # Path for the CSV export endpoint, preserving the current filter state.
   # The brush selection (if any) is appended client-side by the
   # PhenologyCsvLink hook — see assets/js/hooks/phenology_csv_link.js.
@@ -907,31 +917,6 @@ defmodule GallformersWeb.PhenologyLive do
                 </p>
               </div>
 
-              <%!-- Species-list ordering. Lives with the below-chart controls
-                    (not the filter form) since it only reorders the list and
-                    never reloads the obs set — hence its own phx-change. --%>
-              <form
-                :if={@filters.display_mode == :species_list}
-                phx-change="sort_species"
-                class="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-3"
-              >
-                <label for="sort" class="block text-xs font-semibold text-gray-600 mb-1">
-                  Sort species by
-                </label>
-                <select name="sort" id="sort" class="gf-select max-w-xs">
-                  <%= for {value, label} <- [
-                      {"name", "Name (A–Z)"},
-                      {"obs_count", "Observation count"},
-                      {"spread", "Phenology spread"},
-                      {"recency", "Most recent"}
-                    ] do %>
-                    <option value={value} selected={to_string(@filters.sort) == value}>
-                      {label}
-                    </option>
-                  <% end %>
-                </select>
-              </form>
-
               <div
                 :if={@filters.display_mode in [:data_table, :species_list]}
                 class="mt-2 flex justify-end"
@@ -1008,12 +993,21 @@ defmodule GallformersWeb.PhenologyLive do
                     rows={species_rows(@observations, @filters.sort)}
                     variant="compact"
                   >
-                    <:col :let={row} label="Species">
+                    <:col :let={row} label={sort_col_label("Species", :name, @filters.sort)}>
                       <.link href={~p"/gall/#{row.species_id}"}>{row.name}</.link>
                     </:col>
-                    <:col :let={row} label="Observations">{row.n_obs}</:col>
-                    <:col :let={row} label="DOY span">{row.spread}</:col>
-                    <:col :let={row} label="Latest">{format_obs_date(row.last_date)}</:col>
+                    <:col
+                      :let={row}
+                      label={sort_col_label("Observations", :obs_count, @filters.sort)}
+                    >
+                      {row.n_obs}
+                    </:col>
+                    <:col :let={row} label={sort_col_label("DOY span", :spread, @filters.sort)}>
+                      {row.spread}
+                    </:col>
+                    <:col :let={row} label={sort_col_label("Latest", :recency, @filters.sort)}>
+                      {format_obs_date(row.last_date)}
+                    </:col>
                   </.table>
                 </div>
               <% true -> %>

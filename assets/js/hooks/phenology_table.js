@@ -31,6 +31,21 @@ export default {
     this._lastVersion = this.el.dataset.version || ''
     this._lastMode = this.el.dataset.mode || ''
     this._lastSort = this.el.dataset.sort || ''
+
+    // Clicking a species-table column header sorts by that column. Delegated
+    // on the host so it survives innerHTML re-renders. The server round-trips
+    // sort_species → new data-sort on the host → updated() re-renders (one
+    // source of truth), so we don't re-sort locally here.
+    this._onHeaderActivate = (e) => {
+      if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return
+      const th = e.target.closest('th[data-sort-key]')
+      if (!th || !this.el.contains(th)) return
+      if (e.type === 'keydown') e.preventDefault()
+      this.pushEvent('sort_species', { sort: th.dataset.sortKey })
+    }
+    this.el.addEventListener('click', this._onHeaderActivate)
+    this.el.addEventListener('keydown', this._onHeaderActivate)
+
     this.render()
   },
 
@@ -50,6 +65,10 @@ export default {
 
   destroyed() {
     if (this._unsubscribe) this._unsubscribe()
+    if (this._onHeaderActivate) {
+      this.el.removeEventListener('click', this._onHeaderActivate)
+      this.el.removeEventListener('keydown', this._onHeaderActivate)
+    }
   },
 
   render() {
@@ -181,10 +200,32 @@ function renderSpeciesTable(points, sort) {
   return `
     ${truncationNotice(shown, total, 'species')}
     <table id="phenology-species-table" class="gf-table gf-table-compact gf-table-zebra">
-      <thead><tr><th>Species</th><th>Observations</th><th>DOY span</th><th>Latest</th></tr></thead>
+      <thead><tr>${speciesHeader(sort)}</tr></thead>
       <tbody>${body}</tbody>
     </table>
   `
+}
+
+// The four columns ARE the sort keys — clicking a header sorts by it (no
+// separate control). Server sort_species/2 mirrors these keys.
+const SPECIES_COLS = [
+  ['Species', 'name'],
+  ['Observations', 'obs_count'],
+  ['DOY span', 'spread'],
+  ['Latest', 'recency'],
+]
+
+function speciesHeader(sort) {
+  return SPECIES_COLS.map(([label, key]) => {
+    const active = key === sort
+    const arrow = active ? (key === 'name' ? ' ▲' : ' ▼') : ''
+    const style = `cursor:pointer;user-select:none;white-space:nowrap;${active ? 'font-weight:700;' : ''}`
+    const ariaSort = active ? (key === 'name' ? 'ascending' : 'descending') : 'none'
+    return (
+      `<th data-sort-key="${key}" role="button" tabindex="0" aria-sort="${ariaSort}" ` +
+      `title="Sort by ${escapeHtml(label)}" style="${style}">${escapeHtml(label)}${arrow}</th>`
+    )
+  }).join('')
 }
 
 // Mirrors Phenology.sort_species_rows/2 (name is the stable tiebreaker).

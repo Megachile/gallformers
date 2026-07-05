@@ -11,6 +11,7 @@ defmodule GallformersWeb.PhenologyController do
   use GallformersWeb, :controller
 
   alias Gallformers.Phenology
+  alias Gallformers.Phenology.Math, as: PhenologyMath
   alias GallformersWeb.PhenologyFilters
 
   NimbleCSV.define(PhenologyCSV, separator: ",", escape: "\"")
@@ -78,13 +79,12 @@ defmodule GallformersWeb.PhenologyController do
       observations
       |> Enum.group_by(&{&1.species_id, &1.species_name})
       |> Enum.map(fn {{_, name}, obs} ->
-        doys = Enum.map(obs, & &1.doy)
         latest = obs |> Enum.map(& &1.date) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end)
 
         %{
           name: name,
           n_obs: length(obs),
-          spread: Enum.max(doys) - Enum.min(doys),
+          spread: PhenologyMath.doy_span(Enum.map(obs, & &1.doy)),
           latest: latest
         }
       end)

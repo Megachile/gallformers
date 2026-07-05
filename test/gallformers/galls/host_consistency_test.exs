@@ -81,6 +81,25 @@ defmodule Gallformers.Galls.HostConsistencyTest do
 
   defp uniq_genus, do: "Testoak#{System.unique_integer([:positive])}"
 
+  # Alpha-only unique genus (no digits) so the Direction-B regex extractor,
+  # which matches genus as [A-Z][a-z]+, can pick it out of prose.
+  defp uniq_alpha do
+    letters = for _ <- 1..9, into: "", do: <<Enum.random(?a..?z)>>
+    String.capitalize(letters)
+  end
+
+  # A gall under its own family/genus with a source note; returns family + gall.
+  defp gall_with_note(description, opts \\ []) do
+    u = System.unique_integer([:positive])
+    fam = taxon("Fam#{u}", "family")
+    gen = taxon("Gen#{u}", "genus", parent_id: fam.id)
+    gall = species("Testgall#{u} (agamic)", "gall")
+    link_taxon(gall.id, gen.id)
+    src = source(id: opts[:source_id])
+    note(gall.id, src.id, description)
+    %{fam: fam, gall: gall}
+  end
+
   # --- Direction A -----------------------------------------------------------
 
   test "flags a host whose name is absent from the gall's source text" do
@@ -143,5 +162,74 @@ defmodule Gallformers.Galls.HostConsistencyTest do
 
   test "gf_notes_source_id/0 is 58" do
     assert HostConsistency.gf_notes_source_id() == 58
+  end
+
+  # --- Direction B -----------------------------------------------------------
+
+  test "Direction B flags a plant named in prose with no gallhost row" do
+    g = uniq_alpha()
+    species("#{g} rubra", "plant")
+    %{fam: fam} = gall_with_note("galls found on #{g} rubra leaves")
+
+    assert %{total: 1, items: [item]} =
+             Galls.host_discrepancies(%{gall_taxon_id: fam.id, direction: :b})
+
+    assert item.host_name == "#{g} rubra"
+    assert item.direction == :unassociated_mention
+    assert item.snippet =~ "rubra"
+  end
+
+  test "Direction B ignores a mentioned plant that IS already a host" do
+    g = uniq_alpha()
+    host = species("#{g} rubra", "plant")
+    %{fam: fam, gall: gall} = gall_with_note("galls found on #{g} rubra leaves")
+    gall_host(gall.id, host.id)
+
+    assert %{total: 0} = Galls.host_discrepancies(%{gall_taxon_id: fam.id, direction: :b})
+  end
+
+  test "Direction B ignores a mention that does not resolve to a real plant" do
+    %{fam: fam} = gall_with_note("some morphological description with Capitalized Words")
+    assert %{total: 0} = Galls.host_discrepancies(%{gall_taxon_id: fam.id, direction: :b})
+  end
+
+  test "Direction B respects a [not a host] text flag" do
+    g = uniq_alpha()
+    species("#{g} rubra", "plant")
+    %{fam: fam} = gall_with_note("#{g} rubra [not a host]; a reporting error")
+
+    assert %{total: 0} = Galls.host_discrepancies(%{gall_taxon_id: fam.id, direction: :b})
+  end
+
+  test "Direction B resolves each plant in an elided-genus list" do
+    g = uniq_alpha()
+    species("#{g} alba", "plant")
+    species("#{g} bicolor", "plant")
+    %{fam: fam} = gall_with_note("recorded from #{g} alba, bicolor")
+
+    assert %{total: 2, items: items} =
+             Galls.host_discrepancies(%{gall_taxon_id: fam.id, direction: :b})
+
+    names = Enum.map(items, & &1.host_name) |> Enum.sort()
+    assert names == ["#{g} alba", "#{g} bicolor"]
+  end
+
+  test "direction :both returns undocumented associations and unassociated mentions" do
+    g = uniq_alpha()
+    # a mentioned-but-unassociated plant (Direction B)
+    species("#{g} rubra", "plant")
+    %{fam: fam, gall: gall} = gall_with_note("on #{g} rubra; also hosts #{g} alba")
+    # an associated host that is NOT named in the note (Direction A) — alba is named,
+    # so use a separate undocumented host
+    undoc = species("#{g} stellata", "plant")
+    gall_host(gall.id, undoc.id)
+
+    assert %{total: total, items: items} =
+             Galls.host_discrepancies(%{gall_taxon_id: fam.id, direction: :both})
+
+    dirs = items |> Enum.map(& &1.direction) |> Enum.uniq() |> Enum.sort()
+    assert :undocumented_association in dirs
+    assert :unassociated_mention in dirs
+    assert total >= 2
   end
 end

@@ -15,6 +15,7 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
   alias Gallformers.Taxonomy.Tree
 
   @notes_values ~w(any with without)
+  @direction_values ~w(a b both)
 
   @impl true
   def mount(_params, session, socket) do
@@ -38,6 +39,7 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
     host_family = parse_int(params["hfam"])
     host_tribe = parse_int(params["htribe"])
     notes = parse_notes(params["notes"])
+    direction = parse_direction(params["dir"])
 
     socket =
       socket
@@ -46,6 +48,7 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
       |> assign(:host_family, host_family)
       |> assign(:host_tribe, host_tribe)
       |> assign(:notes, notes)
+      |> assign(:direction, direction)
       |> assign(:gall_tribes, tribe_options(gall_family))
       |> assign(:host_tribes, tribe_options(host_family))
       |> load_discrepancies()
@@ -75,13 +78,18 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
   def handle_event("notes", %{"value" => v}, socket),
     do: {:noreply, push_filter(socket, notes: v)}
 
+  @impl true
+  def handle_event("direction", %{"value" => v}, socket),
+    do: {:noreply, push_filter(socket, dir: v)}
+
   # --- Data ------------------------------------------------------------------
 
   defp load_discrepancies(socket) do
     filter = %{
       gall_taxon_id: socket.assigns.gall_tribe || socket.assigns.gall_family,
       host_taxon_id: socket.assigns.host_tribe || socket.assigns.host_family,
-      has_gf_notes: socket.assigns.notes
+      has_gf_notes: socket.assigns.notes,
+      direction: socket.assigns.direction
     }
 
     result = Galls.host_discrepancies(filter)
@@ -109,7 +117,8 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
       gtribe: socket.assigns.gall_tribe,
       hfam: socket.assigns.host_family,
       htribe: socket.assigns.host_tribe,
-      notes: socket.assigns.notes
+      notes: socket.assigns.notes,
+      dir: socket.assigns.direction
     }
 
     params =
@@ -123,6 +132,7 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
   defp put_param(acc, _k, nil), do: acc
   defp put_param(acc, _k, ""), do: acc
   defp put_param(acc, :notes, :any), do: acc
+  defp put_param(acc, :dir, :a), do: acc
   defp put_param(acc, k, v), do: Map.put(acc, to_string(k), to_string(v))
 
   defp parse_int(nil), do: nil
@@ -137,6 +147,9 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
 
   defp parse_notes(v) when v in @notes_values, do: String.to_existing_atom(v)
   defp parse_notes(_), do: :any
+
+  defp parse_direction(v) when v in @direction_values, do: String.to_existing_atom(v)
+  defp parse_direction(_), do: :a
 
   defp any_filter?(assigns),
     do: not is_nil(assigns.gall_family) or not is_nil(assigns.host_family)
@@ -160,17 +173,19 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
           <div class="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
             <h4 class="text-lg font-semibold text-gf-maroon">Host Association Review</h4>
             <span class="text-sm text-gray-500">
-              {@total} undocumented association{if @total == 1, do: "", else: "s"}
+              {@total} discrepanc{if @total == 1, do: "y", else: "ies"}
             </span>
           </div>
 
           <div class="p-4">
             <p class="text-sm text-gray-600 mb-4">
-              Each row is a host in the <code>gallhost</code>
-              table whose current name is <strong>not written</strong>
-              in any of that gall's source descriptions. Resolve it by citing a source that names the
-              host, adding a Gallformers Note explaining the association, or removing the association.
-              Filter to a family or tribe you know to work through your own group.
+              Discrepancies between a gall's structured hosts (<code>gallhost</code>) and the host
+              names written in its sources. <strong>Undocumented associations</strong>
+              are hosts we assert that no source names — cite a source, add a Gallformers Note, or
+              remove the association. <strong>Lit. mentions</strong>
+              are plants named in a source with no association — add the host, or mark it
+              <code>[not a host]</code>
+              in GF Notes if it's a reporting error. Filter to a family or tribe you know.
             </p>
 
             <div class="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -219,20 +234,38 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
               </fieldset>
             </div>
 
-            <div class="mb-4 flex items-center gap-2">
-              <label class="text-sm font-medium text-gray-700">GF Notes:</label>
-              <form phx-change="notes" class="w-44">
-                <.input
-                  type="select"
-                  name="value"
-                  value={@notes}
-                  options={[
-                    {"Any", "any"},
-                    {"Has GF Notes", "with"},
-                    {"No GF Notes", "without"}
-                  ]}
-                />
-              </form>
+            <div class="mb-4 flex flex-wrap items-center gap-6">
+              <div class="flex items-center gap-2">
+                <label class="text-sm font-medium text-gray-700">Type:</label>
+                <form phx-change="direction" class="w-64">
+                  <.input
+                    type="select"
+                    name="value"
+                    value={@direction}
+                    options={[
+                      {"Undocumented associations (A)", "a"},
+                      {"Unassociated lit. mentions (B)", "b"},
+                      {"Both", "both"}
+                    ]}
+                  />
+                </form>
+              </div>
+
+              <div class="flex items-center gap-2">
+                <label class="text-sm font-medium text-gray-700">GF Notes:</label>
+                <form phx-change="notes" class="w-44">
+                  <.input
+                    type="select"
+                    name="value"
+                    value={@notes}
+                    options={[
+                      {"Any", "any"},
+                      {"Has GF Notes", "with"},
+                      {"No GF Notes", "without"}
+                    ]}
+                  />
+                </form>
+              </div>
             </div>
 
             <p :if={not any_filter?(assigns)} class="text-sm text-gray-500 italic py-6 text-center">
@@ -252,7 +285,23 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
                   {d.gall_name}
                 </.link>
               </:col>
-              <:col :let={d} label="Undocumented host">
+              <:col :let={d} label="Type">
+                <span
+                  :if={d.direction == :undocumented_association}
+                  class="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-800"
+                  title="in gallhost, not written in the sources"
+                >
+                  undocumented assoc.
+                </span>
+                <span
+                  :if={d.direction == :unassociated_mention}
+                  class="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-800"
+                  title="named in the sources, no gallhost row"
+                >
+                  lit. mention
+                </span>
+              </:col>
+              <:col :let={d} label="Host">
                 <.link navigate={~p"/admin/hosts/#{d.host_id}"} class="hover:underline">
                   {d.host_name}
                 </.link>
@@ -263,6 +312,12 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
                 >
                   (genus)
                 </span>
+                <div
+                  :if={d.snippet != ""}
+                  class="text-xs text-gray-500 italic mt-0.5 max-w-md truncate"
+                >
+                  “{d.snippet}”
+                </div>
               </:col>
               <:col :let={d} label="Sources">
                 <span class="text-sm text-gray-600">{d.source_count}</span>
@@ -289,7 +344,7 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
               :if={any_filter?(assigns) and @items == []}
               class="text-sm text-green-700 py-6 text-center"
             >
-              No undocumented associations in this scope. 🎉
+              No discrepancies in this scope. 🎉
             </p>
           </div>
         </div>

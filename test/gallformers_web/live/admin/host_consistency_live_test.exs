@@ -92,7 +92,29 @@ defmodule GallformersWeb.Admin.HostConsistencyLiveTest do
 
       assert html =~ gall.name
       assert html =~ host.name
-      assert html =~ "1 undocumented association"
+      assert html =~ "1 discrepancy"
+    end
+
+    test "Direction B lists a plant named in the prose with no association", %{conn: conn} do
+      u = System.unique_integer([:positive])
+      fam = taxon("Fam#{u}", "family")
+      gen = taxon("Gen#{u}", "genus", parent_id: fam.id)
+      gall = species("Testgall#{u} (agamic)", "gall")
+      link_taxon(gall.id, gen.id)
+      # alpha-only genus so the Direction-B extractor can pull it from prose
+      plant = species("Qwertyuiop rubra", "plant")
+      src = source()
+
+      Repo.insert!(%Gallformers.Species.SpeciesSource{
+        species_id: gall.id,
+        source_id: src.id,
+        description: "galls recorded on Qwertyuiop rubra in autumn"
+      })
+
+      {:ok, _view, html} = live(conn, ~p"/admin/host-consistency?gfam=#{fam.id}&dir=b")
+
+      assert html =~ plant.name
+      assert html =~ "lit. mention"
     end
 
     test "an unrelated family filter shows the empty (all-clear) state", %{conn: conn} do
@@ -101,7 +123,7 @@ defmodule GallformersWeb.Admin.HostConsistencyLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/admin/host-consistency?gfam=#{other.id}")
 
-      assert html =~ "No undocumented associations in this scope"
+      assert html =~ "No discrepancies in this scope"
     end
   end
 end

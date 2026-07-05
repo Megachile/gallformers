@@ -841,6 +841,32 @@ defmodule Gallformers.Taxonomy.Tree do
   end
 
   @doc """
+  Returns species IDs of the given `taxoncode` (`"gall"` / `"plant"`) that fall
+  under a taxonomy node — a family or any intermediate rank (subfamily / tribe).
+
+  Walks the tree to every descendant genus (reusing `genus_ids_for_family/1`,
+  whose descent is generic) and then resolves species through `species_taxonomy`.
+  Returns `[]` for a node with no genera underneath.
+  """
+  @spec species_ids_under_taxon(integer(), String.t()) :: [integer()]
+  def species_ids_under_taxon(taxon_id, taxoncode) do
+    case genus_ids_for_family(taxon_id) do
+      [] ->
+        []
+
+      genus_ids ->
+        from(st in "species_taxonomy",
+          join: s in "species",
+          on: s.id == st.species_id,
+          where: st.taxonomy_id in ^genus_ids and s.taxoncode == ^taxoncode,
+          distinct: true,
+          select: st.species_id
+        )
+        |> Repo.all()
+    end
+  end
+
+  @doc """
   Returns all genera under a family as loaded Taxonomy structs, walking through
   intermediate ranks. Ordered by name.
   """

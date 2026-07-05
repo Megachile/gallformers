@@ -39,7 +39,14 @@ defmodule Gallformers.Galls do
     Walls
   }
 
-  alias Gallformers.Galls.{GallHost, GallTraits, HostAssociations, Identification}
+  alias Gallformers.Galls.{
+    GallHost,
+    GallTraits,
+    HostAssociations,
+    HostConsistency,
+    Identification
+  }
+
   alias Gallformers.Images.Image
   alias Gallformers.Places.Place
   alias Gallformers.Repo
@@ -74,6 +81,12 @@ defmodule Gallformers.Galls do
   defdelegate remove_host_from_gall(host_relation_id), to: HostAssociations
   defdelegate delete_gall_host(id), to: HostAssociations
   defdelegate get_gall_host(id), to: HostAssociations
+
+  # =====================================================================
+  # Host/source consistency review — delegated to Galls.HostConsistency
+  # =====================================================================
+
+  defdelegate host_discrepancies(filter \\ %{}), to: HostConsistency, as: :discrepancies
 
   defdelegate save_gall_host_changes(gall_id, hosts_to_add, hosts_to_remove),
     to: HostAssociations

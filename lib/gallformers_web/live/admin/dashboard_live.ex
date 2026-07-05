@@ -62,6 +62,12 @@ defmodule GallformersWeb.Admin.DashboardLive do
             accent="blue"
           />
           <.action_card
+            label="Review Host Associations"
+            href="/admin/host-consistency"
+            icon="ph-list-checks"
+            accent="blue"
+          />
+          <.action_card
             label="Review Gall Ranges"
             href="/admin/gall-range"
             icon="ph-map-trifold"

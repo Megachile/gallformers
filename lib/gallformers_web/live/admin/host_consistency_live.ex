@@ -16,6 +16,7 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
 
   @notes_values ~w(any with without)
   @direction_values ~w(a b both)
+  @undescribed_values ~w(any only exclude)
   @sort_values ~w(gall host type sources)
 
   @impl true
@@ -41,6 +42,7 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
     host_tribe = parse_int(params["htribe"])
     notes = parse_notes(params["notes"])
     direction = parse_direction(params["dir"])
+    undescribed = parse_undescribed(params["und"])
     sort_field = parse_sort(params["sort"])
     sort_order = parse_order(params["ord"])
 
@@ -52,6 +54,7 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
       |> assign(:host_tribe, host_tribe)
       |> assign(:notes, notes)
       |> assign(:direction, direction)
+      |> assign(:undescribed, undescribed)
       |> assign(:sort_field, sort_field)
       |> assign(:sort_order, sort_order)
       |> assign(:gall_tribes, tribe_options(gall_family))
@@ -88,6 +91,10 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
     do: {:noreply, push_filter(socket, dir: v)}
 
   @impl true
+  def handle_event("undescribed", %{"value" => v}, socket),
+    do: {:noreply, push_filter(socket, und: v)}
+
+  @impl true
   def handle_event("sort", %{"value" => v}, socket),
     do: {:noreply, push_filter(socket, sort: v)}
 
@@ -105,6 +112,7 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
       host_taxon_id: socket.assigns.host_tribe || socket.assigns.host_family,
       has_gf_notes: socket.assigns.notes,
       direction: socket.assigns.direction,
+      undescribed: socket.assigns.undescribed,
       sort: {socket.assigns.sort_field, socket.assigns.sort_order}
     }
 
@@ -135,6 +143,7 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
       htribe: socket.assigns.host_tribe,
       notes: socket.assigns.notes,
       dir: socket.assigns.direction,
+      und: socket.assigns.undescribed,
       sort: socket.assigns.sort_field,
       ord: socket.assigns.sort_order
     }
@@ -151,6 +160,7 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
   defp put_param(acc, _k, ""), do: acc
   defp put_param(acc, :notes, :any), do: acc
   defp put_param(acc, :dir, :a), do: acc
+  defp put_param(acc, :und, :any), do: acc
   defp put_param(acc, :sort, :gall), do: acc
   defp put_param(acc, :ord, :asc), do: acc
   defp put_param(acc, k, v), do: Map.put(acc, to_string(k), to_string(v))
@@ -170,6 +180,17 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
 
   defp parse_direction(v) when v in @direction_values, do: String.to_existing_atom(v)
   defp parse_direction(_), do: :a
+
+  defp parse_undescribed(v) when v in @undescribed_values, do: String.to_existing_atom(v)
+  defp parse_undescribed(_), do: :any
+
+  # Direct GF Notes editor when notes exist (auto-opens the source-58 mapping),
+  # otherwise the species' mapping list where notes can be added.
+  defp gf_notes_path(gall_id, true),
+    do: ~p"/admin/species-sources/find?#{[species_id: gall_id, source_id: 58]}"
+
+  defp gf_notes_path(gall_id, false),
+    do: ~p"/admin/species-sources/find?#{[species_id: gall_id]}"
 
   defp parse_sort(v) when v in @sort_values, do: String.to_existing_atom(v)
   defp parse_sort(_), do: :gall
@@ -294,6 +315,22 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
               </div>
 
               <div class="flex items-center gap-2">
+                <label class="text-sm font-medium text-gray-700">Undescribed:</label>
+                <form phx-change="undescribed" class="w-40">
+                  <.input
+                    type="select"
+                    name="value"
+                    value={@undescribed}
+                    options={[
+                      {"Include", "any"},
+                      {"Only undescribed", "only"},
+                      {"Exclude undescribed", "exclude"}
+                    ]}
+                  />
+                </form>
+              </div>
+
+              <div class="flex items-center gap-2">
                 <label class="text-sm font-medium text-gray-700">Sort:</label>
                 <form phx-change="sort" class="w-32">
                   <.input
@@ -391,8 +428,16 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
                 </.link>
               </:action>
               <:action :let={d}>
-                <.link navigate={~p"/admin/galls/#{d.gall_id}"} class="text-sm hover:underline">
-                  Edit gall & sources
+                <.link
+                  navigate={gf_notes_path(d.gall_id, d.has_gf_notes)}
+                  class="text-sm hover:underline"
+                >
+                  GF Notes
+                </.link>
+              </:action>
+              <:action :let={d}>
+                <.link href={~p"/gall/#{d.gall_id}"} target="_blank" class="text-sm hover:underline">
+                  Public ↗
                 </.link>
               </:action>
             </.table>

@@ -53,8 +53,14 @@ defmodule GallformersWeb.Admin.HostConsistencyGallLive do
                 <.link navigate={~p"/admin/gallhost?id=#{@detail.gall_id}"} class="hover:underline">
                   Edit hosts
                 </.link>
-                <.link navigate={~p"/admin/galls/#{@detail.gall_id}"} class="hover:underline">
-                  Edit gall &amp; sources
+                <.link
+                  navigate={gf_notes_path(@detail.gall_id, has_gf_notes?(@detail))}
+                  class="hover:underline"
+                >
+                  Edit GF Notes
+                </.link>
+                <.link href={~p"/gall/#{@detail.gall_id}"} target="_blank" class="hover:underline">
+                  Public page ↗
                 </.link>
               </div>
             </div>
@@ -143,4 +149,13 @@ defmodule GallformersWeb.Admin.HostConsistencyGallLive do
   end
 
   defp undoc_count(hosts), do: Enum.count(hosts, &(not &1.documented))
+
+  defp has_gf_notes?(detail), do: Enum.any?(detail.sources, &(&1.source_id == 58))
+
+  # Direct GF Notes editor when notes exist, else the mapping list to add them.
+  defp gf_notes_path(gall_id, true),
+    do: ~p"/admin/species-sources/find?#{[species_id: gall_id, source_id: 58]}"
+
+  defp gf_notes_path(gall_id, false),
+    do: ~p"/admin/species-sources/find?#{[species_id: gall_id]}"
 end

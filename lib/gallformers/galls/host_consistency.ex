@@ -57,6 +57,7 @@ defmodule Gallformers.Galls.HostConsistency do
           optional(:host_taxon_id) => integer() | nil,
           optional(:direction) => :a | :b | :both,
           optional(:has_gf_notes) => :any | :with | :without,
+          optional(:undescribed) => :any | :only | :exclude,
           optional(:sort) => {:gall | :host | :type | :sources, :asc | :desc},
           optional(:limit) => pos_integer()
         }
@@ -160,12 +161,13 @@ defmodule Gallformers.Galls.HostConsistency do
     limit = filter[:limit] || @default_limit
     has_gf_notes = filter[:has_gf_notes] || :any
     direction = normalize_direction(filter[:direction])
+    undescribed = normalize_undescribed(filter[:undescribed])
 
-    assocs = load_associations(gall_taxon_id, host_taxon_id)
+    assocs = load_associations(gall_taxon_id, host_taxon_id, undescribed)
 
     b_gall_ids =
       if direction in [:b, :both],
-        do: b_gall_scope(assocs, gall_taxon_id),
+        do: b_gall_scope(assocs, gall_taxon_id, undescribed),
         else: []
 
     gall_ids = (Enum.map(assocs, & &1.gall_id) ++ b_gall_ids) |> Enum.uniq()
@@ -274,10 +276,14 @@ defmodule Gallformers.Galls.HostConsistency do
 
   # Direction B needs the full gall scope (incl. galls with zero hosts), which
   # can only come from the taxon filter — not from gallhost.
-  defp b_gall_scope(_assocs, gall_taxon_id) when is_integer(gall_taxon_id),
-    do: Tree.species_ids_under_taxon(gall_taxon_id, "gall")
+  defp b_gall_scope(_assocs, gall_taxon_id, undescribed) when is_integer(gall_taxon_id) do
+    gall_taxon_id
+    |> Tree.species_ids_under_taxon("gall")
+    |> filter_undescribed(undescribed)
+  end
 
-  defp b_gall_scope(assocs, nil), do: assocs |> Enum.map(& &1.gall_id) |> Enum.uniq()
+  defp b_gall_scope(assocs, nil, _undescribed),
+    do: assocs |> Enum.map(& &1.gall_id) |> Enum.uniq()
 
   defp host_scope_set(nil), do: nil
 
@@ -285,7 +291,7 @@ defmodule Gallformers.Galls.HostConsistency do
     do: MapSet.new(Tree.species_ids_under_taxon(host_taxon_id, "plant"))
 
   # Loads gall↔host associations in scope, with the host's name + placeholder flag.
-  defp load_associations(gall_taxon_id, host_taxon_id) do
+  defp load_associations(gall_taxon_id, host_taxon_id, undescribed) do
     query =
       from(gh in GallHost,
         join: hs in Species,
@@ -301,7 +307,45 @@ defmodule Gallformers.Galls.HostConsistency do
     query
     |> scope_galls(gall_taxon_id)
     |> scope_hosts(host_taxon_id)
+    |> scope_undescribed(undescribed)
     |> Repo.all()
+  end
+
+  defp scope_undescribed(query, :any), do: query
+
+  defp scope_undescribed(query, :only) do
+    from([gh, _hs] in query,
+      join: gt in "gall_traits",
+      on: gt.species_id == gh.gall_species_id,
+      where: gt.undescribed == true
+    )
+  end
+
+  defp scope_undescribed(query, :exclude) do
+    from([gh, _hs] in query,
+      left_join: gt in "gall_traits",
+      on: gt.species_id == gh.gall_species_id,
+      where: is_nil(gt.undescribed) or gt.undescribed == false
+    )
+  end
+
+  # List-based counterpart for the Direction-B gall scope.
+  defp filter_undescribed(gall_ids, :any), do: gall_ids
+  defp filter_undescribed([], _mode), do: []
+
+  defp filter_undescribed(gall_ids, mode) do
+    undescribed =
+      from(gt in "gall_traits",
+        where: gt.species_id in ^gall_ids and gt.undescribed == true,
+        select: gt.species_id
+      )
+      |> Repo.all()
+      |> MapSet.new()
+
+    case mode do
+      :only -> Enum.filter(gall_ids, &MapSet.member?(undescribed, &1))
+      :exclude -> Enum.reject(gall_ids, &MapSet.member?(undescribed, &1))
+    end
   end
 
   defp scope_galls(query, nil), do: query
@@ -449,6 +493,10 @@ defmodule Gallformers.Galls.HostConsistency do
   defp normalize_direction(d) when d in [:b, "b"], do: :b
   defp normalize_direction(d) when d in [:both, "both"], do: :both
   defp normalize_direction(_), do: :a
+
+  defp normalize_undescribed(u) when u in [:only, "only"], do: :only
+  defp normalize_undescribed(u) when u in [:exclude, "exclude"], do: :exclude
+  defp normalize_undescribed(_), do: :any
 
   defp keep_by_notes?(_descs, :any), do: true
   defp keep_by_notes?(descs, :with), do: has_gf_notes?(descs)

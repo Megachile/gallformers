@@ -164,6 +164,26 @@ defmodule Gallformers.Galls.HostConsistencyTest do
     assert HostConsistency.gf_notes_source_id() == 58
   end
 
+  # --- undescribed filter ----------------------------------------------------
+
+  test "undescribed :only / :exclude filter on gall_traits.undescribed" do
+    g = uniq_genus()
+    %{gfam: fam, gall: gall} = scenario("#{g} alba", "on #{g} rubra")
+    Repo.insert!(%Gallformers.Galls.GallTraits{species_id: gall.id, undescribed: true})
+
+    assert %{total: 1} = Galls.host_discrepancies(%{gall_taxon_id: fam.id, undescribed: :only})
+    assert %{total: 0} = Galls.host_discrepancies(%{gall_taxon_id: fam.id, undescribed: :exclude})
+    assert %{total: 1} = Galls.host_discrepancies(%{gall_taxon_id: fam.id, undescribed: :any})
+  end
+
+  test "undescribed :exclude keeps galls with no gall_traits row (described by default)" do
+    g = uniq_genus()
+    %{gfam: fam} = scenario("#{g} alba", "on #{g} rubra")
+
+    assert %{total: 1} = Galls.host_discrepancies(%{gall_taxon_id: fam.id, undescribed: :exclude})
+    assert %{total: 0} = Galls.host_discrepancies(%{gall_taxon_id: fam.id, undescribed: :only})
+  end
+
   # --- Direction B -----------------------------------------------------------
 
   test "Direction B flags a plant named in prose with no gallhost row" do

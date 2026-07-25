@@ -36,6 +36,7 @@ defmodule Gallformers.Authorship do
   alias Gallformers.Authorship.Classifier
   alias Gallformers.Authorship.NameMention
   alias Gallformers.Repo
+  alias Gallformers.Species.Species
 
   @typedoc """
   A mention joined to the publication that carries it. `source_author` and
@@ -131,7 +132,38 @@ defmodule Gallformers.Authorship do
     |> Enum.map(&{&1, authorship(&1, mentions)})
     |> Enum.reject(fn {_name, result} -> is_nil(result) end)
     |> Map.new()
+    |> fill_from_species(species_id, names)
   end
+
+  # A curator may record an authorship on the species itself when no source
+  # entry establishes the name. It applies only to the species' own name, and
+  # only where the mentions said nothing — evidence supersedes it rather than
+  # competing with it.
+  defp fill_from_species(resolved, species_id, names) do
+    species = Repo.get(Species, species_id)
+
+    cond do
+      is_nil(species) -> resolved
+      blank?(species.authorship) -> resolved
+      Map.has_key?(resolved, species.name) -> resolved
+      species.name not in names -> resolved
+      true -> Map.put(resolved, species.name, direct(species.authorship))
+    end
+  end
+
+  defp direct(authorship) do
+    %{
+      authorship: authorship,
+      basionym: nil,
+      role: "recorded_directly",
+      source_id: nil,
+      source_title: nil,
+      species_source_id: nil
+    }
+  end
+
+  defp blank?(nil), do: true
+  defp blank?(value), do: String.trim(value) == ""
 
   @doc """
   Authorship for one species, loading its mentions in the process.
@@ -141,7 +173,9 @@ defmodule Gallformers.Authorship do
   """
   @spec authorship_for_species(integer(), String.t()) :: map() | nil
   def authorship_for_species(species_id, name) do
-    authorship(name, mentions_for_species(species_id))
+    species_id
+    |> authorships([name])
+    |> Map.get(name)
   end
 
   @doc """

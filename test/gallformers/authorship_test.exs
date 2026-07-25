@@ -266,6 +266,50 @@ defmodule Gallformers.AuthorshipTest do
     end
   end
 
+  describe "authorship recorded directly on the species" do
+    test "is used when no source entry establishes the name" do
+      species = Repo.insert!(%Species{name: "Aulacidea hieracii", taxoncode: "gall"})
+      Repo.update!(Ecto.Changeset.change(species, authorship: "(Linnaeus, 1758)"))
+
+      result = Authorship.authorship_for_species(species.id, "Aulacidea hieracii")
+
+      assert result.authorship == "(Linnaeus, 1758)"
+      assert result.role == "recorded_directly"
+      assert result.basionym == nil
+    end
+
+    test "is superseded once an entry establishes the name" do
+      species = species!("Druon ignotum")
+      Repo.update!(Ecto.Changeset.change(species, authorship: "(Someone, 1900)"))
+
+      bassett = source!(%{title: "New Cynipidae", author: "HF Bassett", pubyear: "1881"})
+      entry = entry!(species, bassett, "Cynips ignota, n. sp.")
+      mention!(entry, %{name: "Cynips ignota", role: "establishes"})
+
+      result = Authorship.authorship_for_species(species.id, "Druon ignotum")
+
+      assert result.authorship == "(Bassett, 1881)"
+      assert result.role == "establishes"
+    end
+
+    test "applies only to the species' own name, never to a synonym" do
+      species = species!("Druon ignotum")
+      Repo.update!(Ecto.Changeset.change(species, authorship: "(Bassett, 1881)"))
+
+      resolved = Authorship.authorships(species.id, ["Druon ignotum", "Cynips ignota"])
+
+      assert resolved["Druon ignotum"].authorship == "(Bassett, 1881)"
+      refute Map.has_key?(resolved, "Cynips ignota")
+    end
+
+    test "a blank value is not an authorship" do
+      species = species!("Druon ignotum")
+      Repo.update!(Ecto.Changeset.change(species, authorship: "   "))
+
+      assert Authorship.authorship_for_species(species.id, "Druon ignotum") == nil
+    end
+  end
+
   describe "authorships/2" do
     test "resolves many names from one query" do
       species = species!("Druon ignotum")

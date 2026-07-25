@@ -21,6 +21,7 @@ defmodule Gallformers.Species.Species do
           taxoncode: String.t() | nil,
           datacomplete: boolean(),
           genus_placeholder: boolean(),
+          authorship: String.t() | nil,
           abundance_id: integer() | nil
         }
 
@@ -29,6 +30,11 @@ defmodule Gallformers.Species.Species do
     field :taxoncode, :string
     field :datacomplete, :boolean, default: false
     field :genus_placeholder, :boolean, default: false
+
+    # Authorship recorded directly, for names whose original description is not
+    # in the database. A source entry that establishes the name supersedes it —
+    # see Gallformers.Authorship.
+    field :authorship, :string
 
     belongs_to :abundance, Gallformers.Species.Abundance
 
@@ -84,10 +90,18 @@ defmodule Gallformers.Species.Species do
   """
   def changeset(species, attrs) do
     species
-    |> cast(attrs, [:name, :taxoncode, :datacomplete, :genus_placeholder, :abundance_id])
+    |> cast(attrs, [
+      :name,
+      :taxoncode,
+      :datacomplete,
+      :genus_placeholder,
+      :authorship,
+      :abundance_id
+    ])
     |> trim_strings()
     |> validate_required(@required_fields)
     |> validate_length(:name, min: 1, max: 500)
+    |> validate_length(:authorship, max: 200)
     |> validate_inclusion(:taxoncode, taxoncodes())
     |> unique_constraint(:name)
   end

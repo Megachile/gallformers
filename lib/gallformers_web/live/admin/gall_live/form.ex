@@ -1017,30 +1017,6 @@ defmodule GallformersWeb.Admin.GallLive.Form do
           <% end %>
         </div>
 
-        <div :if={@mode == :edit} class="mb-3">
-          <label class="gf-label">Authorship:</label>
-          <div :if={@authorship} class="text-sm">
-            <span class="font-medium text-gray-800">{@authorship.authorship}</span>
-            <span class="text-gray-500">
-              — from <em>{@authorship.basionym}</em>, {if @authorship.role == "establishes",
-                do: "established in",
-                else: "citation given in"}
-              <.link
-                navigate={
-                  ~p"/admin/species-sources/find?species_id=#{@gall.id}&source_id=#{@authorship.source_id}"
-                }
-                class="text-gf-maroon hover:underline"
-              >
-                {@authorship.source_title}
-              </.link>
-            </span>
-          </div>
-          <p :if={is_nil(@authorship)} class="text-sm text-gray-500">
-            No source entry records an original description for this name. Open the entry that is
-            one and fill in <em>Original description of</em>.
-          </p>
-        </div>
-
         <.alias_collision_warning collisions={@alias_collisions} />
 
         <%!-- Rest of form - disabled until gall selected/created --%>
@@ -1061,6 +1037,43 @@ defmodule GallformersWeb.Admin.GallLive.Form do
               new_genus_hint="selected family"
               family_required_always={true}
             />
+
+            <%!-- Row: Authorship --%>
+            <div class="mb-3">
+              <label class="gf-label">Authorship:</label>
+
+              <%!-- Sourced authorship wins and is read-only here: it is derived
+                    from the entry that establishes the name, so it gets
+                    corrected there rather than overtyped. --%>
+              <div :if={@authorship && @authorship.role != "recorded_directly"} class="text-sm">
+                <span class="font-medium text-gray-800">{@authorship.authorship}</span>
+                <span class="text-gray-500">
+                  &mdash; from <em>{@authorship.basionym}</em>, {if @authorship.role == "establishes",
+                    do: "established in",
+                    else: "citation given in"}
+                  <.link
+                    navigate={
+                      ~p"/admin/species-sources/find?species_id=#{@gall.id}&source_id=#{@authorship.source_id}"
+                    }
+                    class="text-gf-maroon hover:underline"
+                  >
+                    {@authorship.source_title}
+                  </.link>
+                </span>
+              </div>
+
+              <%!-- Otherwise it is typed here. The parentheses have to be
+                    supplied by hand: with no basionym on record there is no
+                    original genus to compare the current one against. --%>
+              <div :if={is_nil(@authorship) || @authorship.role == "recorded_directly"}>
+                <.input field={@form[:authorship]} type="text" placeholder="e.g. (Bassett, 1881)" />
+                <p class="mt-1 text-xs text-gray-500">
+                  No source entry establishes this name, so record the authorship here. Flagging the
+                  original description on its source entry supersedes this, and keeps the parentheses
+                  right through a reclassification.
+                </p>
+              </div>
+            </div>
 
             <%!-- Row: Hosts --%>
             <div class="mb-3">

@@ -368,23 +368,23 @@ defmodule GallformersWeb.GallLive do
             <div class="lg:col-span-2 space-y-2">
               <div class="flex items-start justify-between gap-4">
                 <div class="flex items-center gap-2">
+                  <%!-- Only the name itself is italic. Authorship follows it
+                        directly, because it belongs to the name; the generation
+                        qualifier is our annotation and comes last. --%>
                   <h2 class="text-2xl font-bold">
-                    <em class="taxon-name">
-                      {@base_name}
-                      <.glossary_tooltip
-                        :if={@generation_term}
-                        term={@generation_term}
-                        glossary_word={@glossary_word}
-                        definition={@generation_definition}
-                      />
-                    </em>
+                    <em class="taxon-name">{@base_name}</em>
                     <span
                       :if={@authorships[@gall.name]}
-                      class="ml-1 font-normal not-italic text-gray-600"
                       title={authorship_provenance(@authorships[@gall.name])}
                     >
                       {@authorships[@gall.name].authorship}
                     </span>
+                    <.glossary_tooltip
+                      :if={@generation_term}
+                      term={@generation_term}
+                      glossary_word={@glossary_word}
+                      definition={@generation_definition}
+                    />
                   </h2>
                   <.link
                     :if={@current_user}
@@ -571,7 +571,6 @@ defmodule GallformersWeb.GallLive do
                           <.taxon_name name={a.name} />
                           <span
                             :if={@authorships[a.name]}
-                            class="ml-1 text-gray-600"
                             title={authorship_provenance(@authorships[a.name])}
                           >
                             {@authorships[a.name].authorship}

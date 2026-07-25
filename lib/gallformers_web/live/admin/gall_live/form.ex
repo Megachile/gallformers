@@ -1022,7 +1022,9 @@ defmodule GallformersWeb.Admin.GallLive.Form do
           <div :if={@authorship} class="text-sm">
             <span class="font-medium text-gray-800">{@authorship.authorship}</span>
             <span class="text-gray-500">
-              — from <em>{@authorship.basionym}</em>, established in
+              — from <em>{@authorship.basionym}</em>, {if @authorship.role == "establishes",
+                do: "established in",
+                else: "citation given in"}
               <.link
                 navigate={
                   ~p"/admin/species-sources/find?species_id=#{@gall.id}&source_id=#{@authorship.source_id}"

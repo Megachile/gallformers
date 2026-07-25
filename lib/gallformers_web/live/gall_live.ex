@@ -18,6 +18,7 @@ defmodule GallformersWeb.GallLive do
     Taxonomy
   }
 
+  alias Gallformers.Authorship
   alias Gallformers.Images
   alias Gallformers.Images.Image
   alias GallformersWeb.SEO
@@ -113,6 +114,12 @@ defmodule GallformersWeb.GallLive do
         common_names = Enum.filter(aliases, &(&1.type == "common"))
         scientific_aliases = Enum.filter(aliases, &(&1.type != "common"))
 
+        # Authorship for the accepted name and every synonym, from one query.
+        # A synonym in another genus resolves to the same basionym and so
+        # renders parenthesised, which is the whole convention.
+        authorships =
+          Authorship.authorships(gall_id, [gall.name | Enum.map(scientific_aliases, & &1.name)])
+
         gallformers_code = gall.gallformers_code
 
         # Check if Gallformers notes exist for this species
@@ -159,6 +166,7 @@ defmodule GallformersWeb.GallLive do
            related_galls: related_galls,
            common_names: common_names,
            scientific_aliases: scientific_aliases,
+           authorships: authorships,
            gallformers_code: gallformers_code,
            has_gallformers_notes: has_gallformers_notes,
            notes_alert_dismissed: false,
@@ -332,6 +340,18 @@ defmodule GallformersWeb.GallLive do
     end
   end
 
+  # Where an authorship came from. `establishes` means the entry IS the
+  # original description; `cites_original` means it reports one published
+  # elsewhere, so that publication is the authority and this source is only
+  # where we read it.
+  defp authorship_provenance(%{role: "establishes"} = a),
+    do: "#{a.basionym} — established in #{a.source_title}"
+
+  defp authorship_provenance(%{role: "cites_original"} = a),
+    do: "#{a.basionym} — citation given in #{a.source_title}"
+
+  defp authorship_provenance(a), do: a.basionym
+
   defp show_expand_button?(sources, expanded?) do
     !expanded? and length(sources) > @sources_initial_limit
   end
@@ -358,6 +378,13 @@ defmodule GallformersWeb.GallLive do
                         definition={@generation_definition}
                       />
                     </em>
+                    <span
+                      :if={@authorships[@gall.name]}
+                      class="ml-1 font-normal not-italic text-gray-600"
+                      title={authorship_provenance(@authorships[@gall.name])}
+                    >
+                      {@authorships[@gall.name].authorship}
+                    </span>
                   </h2>
                   <.link
                     :if={@current_user}
@@ -540,7 +567,16 @@ defmodule GallformersWeb.GallLive do
                       <tr :for={
                         a <- paginated_aliases(@scientific_aliases, @aliases_page, @aliases_page_size)
                       }>
-                        <td><.taxon_name name={a.name} /></td>
+                        <td>
+                          <.taxon_name name={a.name} />
+                          <span
+                            :if={@authorships[a.name]}
+                            class="ml-1 text-gray-600"
+                            title={authorship_provenance(@authorships[a.name])}
+                          >
+                            {@authorships[a.name].authorship}
+                          </span>
+                        </td>
                         <td class="text-gray-600">{a.type || "—"}</td>
                         <td class="text-gray-600">{a.description || "—"}</td>
                       </tr>

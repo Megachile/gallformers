@@ -219,26 +219,26 @@ defmodule Gallformers.Authorship do
   # Precedence, in order:
   #
   # 1. Earliest year. Priority is the actual nomenclatural rule and outranks
-  #    everything else here — Philonix fulvicollis is Fitch, 1859 no matter
-  #    which later work restates it.
-  # 2. Among names of the same year, one in a *different* genus identifies the
-  #    original combination, where a mention under the current name says only
-  #    that an authorship exists. Aceria parulmi is marked as a description
-  #    under its modern name but cited as Eriophyes parulmi; the latter is
-  #    what tells us the authorship is parenthesised.
-  # 3. `establishes` over `cites_original` — the entry that is the description
-  #    beats one reporting it second-hand. This is what corrects Neuroterus
+  #    everything else — Philonix fulvicollis is Fitch, 1859 no matter which
+  #    later work restates it. This is also what corrects Neuroterus
   #    umbilicatus, cited elsewhere as 1990 for a name published in 1900.
+  # 2. `establishes` over `cites_original`. The recorded fact that an entry
+  #    *is* a description is trusted over a second-hand report of one. Where
+  #    that record names the wrong combination the fix is to correct it, not
+  #    to out-guess it here.
+  # 3. An unparenthesised citation over a parenthesised one — the former is an
+  #    original combination, the latter explicitly a later one.
   #
-  # Rule 2 is fooled by a misspelled genus, which reads as a change that never
-  # happened. That surfaces as a spurious pair of parentheses and is a cue to
-  # fix the entry, which is where the error actually is.
-  defp best(candidates, name) do
+  # Deliberately absent: any preference for a mention in a different genus.
+  # That reads well for the accepted name and backwards for the basionym
+  # itself, where it picks a later combination over the original and
+  # parenthesises a name that should stand bare.
+  defp best(candidates, _name) do
     Enum.min_by(candidates, fn candidate ->
       {
         candidate.year,
-        if(Classifier.parenthesised?(name, candidate.name), do: 0, else: 1),
-        if(candidate.role == "establishes", do: 0, else: 1)
+        if(candidate.role == "establishes", do: 0, else: 1),
+        if(candidate.parenthesised, do: 1, else: 0)
       }
     end)
   end

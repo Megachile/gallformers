@@ -12,9 +12,7 @@ defmodule Gallformers.AuthorshipTest do
   end
 
   defp source!(attrs) do
-    Repo.insert!(
-      struct(%Source{link: "", citation: "", license: "", datacomplete: false}, attrs)
-    )
+    Repo.insert!(struct(%Source{link: "", citation: "", license: "", datacomplete: false}, attrs))
   end
 
   defp entry!(species, source, description \\ "") do
@@ -57,6 +55,29 @@ defmodule Gallformers.AuthorshipTest do
       result = Authorship.authorship("Cynips ignota", Authorship.mentions_for_species(species.id))
 
       assert result.authorship == "Bassett, 1881"
+    end
+
+    test "the basionym stays bare even when a later combination is on record", %{
+      species: species
+    } do
+      # The 2022 revision restates the authorship as "Druon ignotum (Bassett,
+      # 1881)". Preferring that record would parenthesise Cynips ignota, which
+      # is the name Bassett actually published.
+      revision = source!(%{title: "Re-establishment", author: "Cuesta-Porta", pubyear: "2022"})
+      entry = entry!(species, revision, "Druon ignotum (Bassett, 1881), comb. nov.")
+
+      mention!(entry, %{
+        name: "Druon ignotum",
+        role: "cites_original",
+        author: "Bassett",
+        year: 1881,
+        parenthesised: true
+      })
+
+      mentions = Authorship.mentions_for_species(species.id)
+
+      assert Authorship.authorship("Cynips ignota", mentions).authorship == "Bassett, 1881"
+      assert Authorship.authorship("Druon ignotum", mentions).authorship == "(Bassett, 1881)"
     end
 
     test "a homotypic synonym inherits it, parenthesised by genus", %{species: species} do
@@ -207,7 +228,10 @@ defmodule Gallformers.AuthorshipTest do
 
       mention!(entry, %{name: "Aceria blastofagi", role: "uses"})
 
-      assert Authorship.authorship("Aceria blastofagi", Authorship.mentions_for_species(species.id)) ==
+      assert Authorship.authorship(
+               "Aceria blastofagi",
+               Authorship.mentions_for_species(species.id)
+             ) ==
                nil
     end
   end

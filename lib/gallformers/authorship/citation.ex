@@ -47,7 +47,14 @@ defmodule Gallformers.Authorship.Citation do
 
   @binomial ~r/^([A-Z][a-zà-ÿ-]+)\s+([a-zà-ÿ-]{3,})\s*/u
   @parenthetical ~r/^\(([^)]*)\)\s*/
-  @author_year ~r/^([A-ZÀ-Þ][^,;:()]{1,60}?),\s*(1[6-9]\d{2}|20\d{2})[a-z]?/u
+  # "Keifer, 1966b: 15" — the comma marks the author off from the year.
+  @author_year ~r/^([A-ZÀ-Þ][^,;:()0-9]{1,60}?),\s*(1[6-9]\d{2}|20\d{2})[a-z]?/u
+
+  # "Osten Sacken 1862: 192" — no comma, so a page reference has to do the
+  # work instead. Without that requirement ordinary prose parses as a
+  # citation: "Reared during April 1881 from oak twigs" has a capitalised
+  # word and a year, and nothing else to disqualify it.
+  @author_year_paged ~r/^([A-ZÀ-Þ][^,;:()0-9]{1,60}?)\s+(1[6-9]\d{2}|20\d{2})[a-z]?\s*:/u
   @year ~r/(1[6-9]\d{2}|20\d{2})/
   @exclusion ~r/\[[^\]]*\]/
 
@@ -111,7 +118,7 @@ defmodule Gallformers.Authorship.Citation do
   end
 
   defp from_plain(name, rest) do
-    case Regex.run(@author_year, rest) do
+    case Regex.run(@author_year, rest) || Regex.run(@author_year_paged, rest) do
       [_matched, author, year] -> build(name, String.trim(author), year, :plain)
       nil -> nil
     end

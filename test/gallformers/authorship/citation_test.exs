@@ -37,6 +37,17 @@ defmodule Gallformers.Authorship.CitationTest do
       assert Citation.parse_line(line) == nil
     end
 
+    test "a page reference stands in for the comma" do
+      # The real Caryomyia caryaecola entry.
+      assert %Citation{name: "Cecidomyia caryaecola", author: "Osten Sacken", year: 1862} =
+               Citation.parse_line("Cecidomyia caryaecola Osten Sacken 1862: 192;")
+    end
+
+    test "a year in prose is not a citation without a comma or a page" do
+      assert Citation.parse_line("Reared during April 1881 from oak twigs.") == nil
+      assert Citation.parse_line("Galls collected Sept 1959 near Evanston.") == nil
+    end
+
     test "multi-author names survive intact" do
       assert %Citation{author: "Tooker & Hanks", year: 2004} =
                Citation.parse_line("Antistrophus meganae Tooker & Hanks, 2004: 33.")

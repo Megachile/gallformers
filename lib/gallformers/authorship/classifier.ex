@@ -40,7 +40,10 @@ defmodule Gallformers.Authorship.Classifier do
   @gender_ending ~r/(orum|arum|ae|us|um|is|a|e|i|o)$/
   @min_stem_length 4
 
-  @origin_marker ~r/\bn\.\s?sp\.|\bsp\.\s?nov\.?|\bnew species\b/i
+  # Transcriptions vary: "n. sp.", "n.sp", "sp. nov", "new species". The
+  # trailing period is not reliable — Bassett's 1890 entry reads
+  # "Rhodites tumidus n.sp" and was being missed for want of it.
+  @origin_marker ~r/\bn\.\s?sp\b\.?|\bsp\.\s?nov\b\.?|\bnew species\b/i
   @exclusion ~r/\[[^\]]*\]/
   @parenthetical ~r/\([^)]*\)/
   @year_pattern ~r/\b(1[6-9]\d{2}|20\d{2})\b/
@@ -130,6 +133,10 @@ defmodule Gallformers.Authorship.Classifier do
     |> first_line()
     |> strip_exclusions()
     |> String.replace(@parenthetical, " ")
+    # The act is often set off by a comma ("Cynips ignota, n. sp.") but not
+    # always ("Rhodites tumidus n.sp"), where it would otherwise read as a
+    # third word and disqualify the name.
+    |> String.replace(@origin_marker, " ")
     |> String.split(",", parts: 2)
     |> hd()
     |> binomial()
@@ -247,7 +254,7 @@ defmodule Gallformers.Authorship.Classifier do
     cited = authorship_from_citations(species_name, citations(sources))
     marked = marked_source_result(species_name, sources)
 
-    reconcile(cited, marked)
+    reconcile(species_name, cited, marked)
   end
 
   defp marked_source_result(species_name, sources) do
@@ -266,21 +273,40 @@ defmodule Gallformers.Authorship.Classifier do
   # company over transcribed years (Bassett 1990 for 1900), misspelled genera
   # (Bassetia for Bassettia, which fakes a genus change), and transliterated
   # umlauts (Beutenmüller / Beutenmueller / Beutenmuller).
-  defp reconcile(nil, nil), do: none()
-  defp reconcile(nil, marked), do: marked
-  defp reconcile(cited, nil), do: cited
+  defp reconcile(_species_name, nil, nil), do: none()
+  defp reconcile(_species_name, nil, marked), do: marked
+  defp reconcile(_species_name, cited, nil), do: cited
 
-  defp reconcile(cited, marked) do
+  defp reconcile(species_name, cited, marked) do
     if same_authorship?(cited.authorship, marked.authorship) do
       %{
         cited
         | authorship: preferred_spelling(cited.authorship, marked.authorship),
           reason: :corroborated
       }
+      |> adopt_named_basionym(species_name, marked)
     else
       %{cited | confidence: :review, reason: :evidence_disagrees, alternative: marked.authorship}
     end
   end
+
+  # Two readings can agree on the authorship and still differ on which name
+  # carries it. A basionym in another genus is the informative one — it names
+  # the original combination — where a basionym equal to the current name says
+  # only that an authorship exists. Antistrophus chrysothamni is cited under
+  # its current name but described as Aulax chrysothamni, and keeping the
+  # latter is what lets the attribution be attached to a synonym on record.
+  defp adopt_named_basionym(result, species_name, marked) do
+    if names_original_genus?(marked.basionym, species_name) and
+         not names_original_genus?(result.basionym, species_name) do
+      %{result | basionym: marked.basionym, source_id: marked.source_id}
+    else
+      result
+    end
+  end
+
+  defp names_original_genus?(nil, _species_name), do: false
+  defp names_original_genus?(basionym, species_name), do: parenthesised?(species_name, basionym)
 
   defp same_authorship?(left, right), do: authorship_key(left) == authorship_key(right)
 
@@ -436,7 +462,7 @@ defmodule Gallformers.Authorship.Classifier do
     cited = authorship_from_citations(valid_name, citations(pooled_sources))
     marked = pooled_marked_result(valid_name, pooled_sources)
 
-    share(rows, reconcile(cited, marked))
+    share(rows, reconcile(valid_name, cited, marked))
   end
 
   defp pooled_marked_result(valid_name, pooled_sources) do

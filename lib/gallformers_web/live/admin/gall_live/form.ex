@@ -11,6 +11,7 @@ defmodule GallformersWeb.Admin.GallLive.Form do
   use GallformersWeb, :live_view
   use GallformersWeb.Admin.FormHelpers
 
+  alias Gallformers.Authorship
   alias Gallformers.Galls
   alias Gallformers.Species
   alias Gallformers.Species.Species, as: SpeciesSchema
@@ -99,6 +100,7 @@ defmodule GallformersWeb.Admin.GallLive.Form do
     |> assign(:from_undescribed_flow, false)
     |> assign(:gall, nil)
     |> assign(:gall_data, nil)
+    |> assign(:authorship, nil)
     |> assign(:form, nil)
     |> assign(:gall_id, nil)
     # Deferred changes tracking
@@ -294,6 +296,7 @@ defmodule GallformersWeb.Admin.GallLive.Form do
           |> assign(:page_title, "Edit Gall - #{species.name}")
           |> assign(:gall, species)
           |> assign(:gall_data, gall_data)
+          |> assign(:authorship, Authorship.authorship_for_species(species_id, species.name))
           |> assign(:form, to_form(Species.change_species(species)))
           |> assign(:gall_id, gall_data.gall_id)
           # Deferred changes tracking (override defaults with loaded data)
@@ -1012,6 +1015,28 @@ defmodule GallformersWeb.Admin.GallLive.Form do
                 Type to search existing galls, or enter a new name to create one.
               </p>
           <% end %>
+        </div>
+
+        <div :if={@mode == :edit} class="mb-3">
+          <label class="gf-label">Authorship:</label>
+          <div :if={@authorship} class="text-sm">
+            <span class="font-medium text-gray-800">{@authorship.authorship}</span>
+            <span class="text-gray-500">
+              — from <em>{@authorship.basionym}</em>, established in
+              <.link
+                navigate={
+                  ~p"/admin/species-sources/find?species_id=#{@gall.id}&source_id=#{@authorship.source_id}"
+                }
+                class="text-gf-maroon hover:underline"
+              >
+                {@authorship.source_title}
+              </.link>
+            </span>
+          </div>
+          <p :if={is_nil(@authorship)} class="text-sm text-gray-500">
+            No source entry records an original description for this name. Open the entry that is
+            one and fill in <em>Original description of</em>.
+          </p>
         </div>
 
         <.alias_collision_warning collisions={@alias_collisions} />

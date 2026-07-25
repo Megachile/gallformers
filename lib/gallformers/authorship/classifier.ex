@@ -343,6 +343,57 @@ defmodule Gallformers.Authorship.Classifier do
   defp ascii?(string), do: String.valid?(string) and byte_size(string) == String.length(string)
 
   @doc """
+  The name mentions a single source entry supports, ready to be recorded.
+
+  Two kinds are produced, and only two — both high precision, because these
+  are written to the database rather than proposed:
+
+    * `"establishes"` when the entry announces an original description and its
+      opening line yields a clean binomial. Author and year are deliberately
+      omitted; they belong to the entry's own source record.
+    * `"cites_original"` for each citation line stating another publication's
+      authorship. The citation shape — a name followed by an author and a year
+      — is what keeps prose and host plants out.
+
+  Usage lines are not returned. They evidence that a combination existed,
+  which matters for populating synonyms, but that is queue work and writing
+  them here would put unreviewed names into the alias pipeline.
+
+  Where the same name appears both ways, the establishing record wins: an
+  entry that *is* the description outranks one reporting it second-hand.
+  """
+  @spec mentions(source()) :: [map()]
+  def mentions(source) do
+    description = Map.get(source, :description)
+
+    established =
+      case establishing_name(description) do
+        nil -> []
+        name -> [%{name: name, role: "establishes", author: nil, year: nil, parenthesised: false}]
+      end
+
+    cited =
+      description
+      |> Citation.parse(citing_year(source))
+      |> Enum.map(
+        &%{
+          name: &1.name,
+          role: "cites_original",
+          author: &1.author,
+          year: &1.year,
+          parenthesised: &1.shape == :parenthesised
+        }
+      )
+
+    (established ++ cited)
+    |> Enum.uniq_by(& &1.name)
+  end
+
+  defp establishing_name(description) do
+    if original_description?(description), do: leading_name(description)
+  end
+
+  @doc """
   Collects every authorship-bearing citation line across a set of sources.
   """
   @spec citations([source()]) :: [Citation.t()]

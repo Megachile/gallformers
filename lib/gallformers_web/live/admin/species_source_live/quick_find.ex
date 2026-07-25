@@ -10,6 +10,7 @@ defmodule GallformersWeb.Admin.SpeciesSourceLive.QuickFind do
   """
   use GallformersWeb, :live_view
 
+  alias Gallformers.Authorship
   alias Gallformers.Sources
   alias Gallformers.Species.SpeciesSource
 
@@ -138,7 +139,8 @@ defmodule GallformersWeb.Admin.SpeciesSourceLive.QuickFind do
       {:noreply,
        socket
        |> assign(:editing_id, mapping_id)
-       |> assign(:form, to_form(changeset))}
+       |> assign(:form, to_form(changeset))
+       |> assign_establishes(mapping_id, mapping.description)}
     else
       {:noreply, put_flash(socket, :error, "Mapping not found")}
     end
@@ -175,7 +177,7 @@ defmodule GallformersWeb.Admin.SpeciesSourceLive.QuickFind do
   end
 
   @impl true
-  def handle_event("save", %{"species_source" => params}, socket) do
+  def handle_event("save", %{"species_source" => params} = all_params, socket) do
     existing = Sources.get_species_source!(socket.assigns.editing_id)
 
     params =
@@ -185,6 +187,7 @@ defmodule GallformersWeb.Admin.SpeciesSourceLive.QuickFind do
 
     case Sources.update_species_source(existing, params) do
       {:ok, _} ->
+        save_establishes(socket.assigns.editing_id, Map.get(all_params, "establishes_name", ""))
         results = refetch_results(socket)
 
         # Rebuild the form with fresh data so the user can keep editing
@@ -205,6 +208,7 @@ defmodule GallformersWeb.Admin.SpeciesSourceLive.QuickFind do
          socket
          |> assign(:results, results)
          |> assign(:form, to_form(changeset))
+         |> assign_establishes(socket.assigns.editing_id, mapping.description)
          |> put_flash(:info, "Mapping updated")}
 
       {:error, %Ecto.Changeset{} = changeset} ->
@@ -229,6 +233,47 @@ defmodule GallformersWeb.Admin.SpeciesSourceLive.QuickFind do
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Failed to delete mapping")}
+    end
+  end
+
+  # The name this entry established, if any. Where nothing is recorded yet the
+  # detector supplies a suggestion, which is shown as a placeholder rather
+  # than filled in — a prefill that saved itself would be a guess written to
+  # the database.
+  defp assign_establishes(socket, mapping_id, description) do
+    recorded =
+      mapping_id
+      |> Authorship.mentions_for_entry()
+      |> Enum.find(&(&1.role == "establishes"))
+
+    suggestion = Authorship.suggested_establishing_name(description)
+
+    socket
+    |> assign(:establishes_name, (recorded && recorded.name) || "")
+    |> assign(:establishes_suggestion, suggestion)
+  end
+
+  # An empty box means "this entry establishes nothing", so clearing it has to
+  # remove the record rather than leave a stale one behind.
+  defp save_establishes(mapping_id, name) do
+    recorded =
+      mapping_id
+      |> Authorship.mentions_for_entry()
+      |> Enum.find(&(&1.role == "establishes"))
+
+    case {String.trim(name), recorded} do
+      {"", nil} ->
+        :ok
+
+      {"", existing} ->
+        Authorship.delete_mention(existing)
+
+      {trimmed, _} ->
+        Authorship.upsert_mention(%{
+          species_source_id: mapping_id,
+          name: trimmed,
+          role: "establishes"
+        })
     end
   end
 
@@ -376,6 +421,30 @@ defmodule GallformersWeb.Admin.SpeciesSourceLive.QuickFind do
                               rows={5}
                               class="w-full"
                             />
+                          </div>
+
+                          <div class="rounded border border-teal-300 bg-teal-50 p-3">
+                            <label class="gf-label" for={"establishes-#{result.id}"}>
+                              Original description of:
+                            </label>
+                            <input
+                              type="text"
+                              id={"establishes-#{result.id}"}
+                              name="establishes_name"
+                              value={@establishes_name}
+                              placeholder={
+                                if @establishes_suggestion,
+                                  do: "suggested: #{@establishes_suggestion}",
+                                  else: "leave empty unless this entry established a name"
+                              }
+                              class="gf-input text-sm"
+                            />
+                            <p class="mt-1 text-xs text-gray-600">
+                              Fill in only if this entry <em>is</em>
+                              the original description — the name it established, as published.
+                              Author and year come from the source record, so a name recorded here
+                              gives every synonym of it an authorship.
+                            </p>
                           </div>
 
                           <div>

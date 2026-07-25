@@ -121,6 +121,15 @@ defmodule Gallformers.Authorship.ClassifierTest do
       assert Classifier.original_description?("Andricus foo sp. nov.\n\nbody") == true
     end
 
+    test "tolerates the spacing actually found in entries" do
+      # Real transcriptions: "sp.  nov." with a double space, "n.sp" with none.
+      assert Classifier.original_description?("Acalitus capparidis Flechtmann, sp.  nov.\n\nx") ==
+               true
+
+      assert Classifier.original_description?("Rhodites tumidus n.sp\n\nx") == true
+      assert Classifier.leading_name("Rhodites tumidus n.sp\n\nx") == "Rhodites tumidus"
+    end
+
     test "comb. nov. is not an original description" do
       refute Classifier.original_description?("Druon ignotum (Bassett, 1881), comb. nov.\n\nbody")
     end

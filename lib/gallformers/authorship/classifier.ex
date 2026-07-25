@@ -43,7 +43,7 @@ defmodule Gallformers.Authorship.Classifier do
   # Transcriptions vary: "n. sp.", "n.sp", "sp. nov", "new species". The
   # trailing period is not reliable — Bassett's 1890 entry reads
   # "Rhodites tumidus n.sp" and was being missed for want of it.
-  @origin_marker ~r/\bn\.\s?sp\b\.?|\bsp\.\s?nov\b\.?|\bnew species\b/i
+  @origin_marker ~r/\bn\.\s*sp\b\.?|\bsp\.\s*nov\b\.?|\bnew species\b/i
   @exclusion ~r/\[[^\]]*\]/
   @parenthetical ~r/\([^)]*\)/
   @year_pattern ~r/\b(1[6-9]\d{2}|20\d{2})\b/

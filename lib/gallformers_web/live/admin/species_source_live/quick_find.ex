@@ -28,6 +28,8 @@ defmodule GallformersWeb.Admin.SpeciesSourceLive.QuickFind do
       |> assign(:searched, false)
       |> assign(:editing_id, nil)
       |> assign(:form, nil)
+      |> assign(:establishes_name, "")
+      |> assign(:establishes_suggestion, nil)
 
     {:ok, socket}
   end
@@ -61,6 +63,7 @@ defmodule GallformersWeb.Admin.SpeciesSourceLive.QuickFind do
             |> assign(:searched, true)
             |> assign(:editing_id, mapping_id)
             |> assign(:form, to_form(changeset))
+            |> assign_establishes(mapping_id, mapping.description)
           else
             _ -> socket
           end

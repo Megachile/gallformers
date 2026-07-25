@@ -181,6 +181,30 @@ defmodule Gallformers.Authorship.ClassifierTest do
       assert result.confidence == :high
     end
 
+    test "spelling variants of one author are not a disagreement" do
+      sources = [
+        %{
+          id: 1,
+          author: "William Beutenmüller",
+          pubyear: "1913",
+          description: "Andricus decidua, n. sp.\n\nbody"
+        },
+        %{
+          id: 2,
+          author: "Later",
+          pubyear: "2020",
+          description: "Andricus decidua Beutenmueller, 1913: 4."
+        }
+      ]
+
+      result = Classifier.derive("Kokkocynips decidua", sources)
+
+      assert result.reason == :corroborated
+      assert result.confidence == :high
+      # The spelling that needs no diacritics is the one kept.
+      assert result.authorship == "(Beutenmueller, 1913)"
+    end
+
     test "flags for review when the two lines of evidence disagree" do
       # The real Neuroterus umbilicatus conflict: a transcribed year of 1990
       # for a name published in 1900.

@@ -270,17 +270,51 @@ defmodule Gallformers.Authorship.Classifier do
   defp reconcile(nil, marked), do: marked
   defp reconcile(cited, nil), do: cited
 
-  defp reconcile(%{authorship: same} = cited, %{authorship: same}),
-    do: %{cited | reason: :corroborated}
-
   defp reconcile(cited, marked) do
-    %{
-      cited
-      | confidence: :review,
-        reason: :evidence_disagrees,
-        alternative: marked.authorship
-    }
+    if same_authorship?(cited.authorship, marked.authorship) do
+      %{
+        cited
+        | authorship: preferred_spelling(cited.authorship, marked.authorship),
+          reason: :corroborated
+      }
+    else
+      %{cited | confidence: :review, reason: :evidence_disagrees, alternative: marked.authorship}
+    end
   end
+
+  defp same_authorship?(left, right), do: authorship_key(left) == authorship_key(right)
+
+  @doc """
+  Folds an authorship string down to a comparison key, so that
+  `Beutenmüller`, `Beutenmueller` and `Beutenmuller` are recognised as one
+  author rather than three disagreements.
+
+  Only ever used for comparison — it is far too lossy to store or display.
+  Folding the German digraphs will also collapse unrelated spellings
+  (`Queiroz` and `Qiroz`), which is acceptable when the two strings are
+  already two readings of the same record.
+  """
+  @spec authorship_key(String.t() | nil) :: String.t() | nil
+  def authorship_key(nil), do: nil
+
+  def authorship_key(authorship) when is_binary(authorship) do
+    authorship
+    |> String.downcase()
+    |> :unicode.characters_to_nfd_binary()
+    |> String.replace(~r/[\x{0300}-\x{036F}]/u, "")
+    |> String.replace(~r/ue/u, "u")
+    |> String.replace(~r/oe/u, "o")
+    |> String.replace(~r/ae/u, "a")
+  end
+
+  # Same author, two spellings. Keep the one that needs no diacritics: it is
+  # the safer thing to commit a database to, and it stays typeable.
+  defp preferred_spelling(left, right) do
+    if ascii?(left) or not ascii?(right), do: left, else: right
+  end
+
+  defp ascii?(nil), do: true
+  defp ascii?(string), do: String.valid?(string) and byte_size(string) == String.length(string)
 
   @doc """
   Collects every authorship-bearing citation line across a set of sources.

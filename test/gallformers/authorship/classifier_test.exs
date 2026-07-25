@@ -46,17 +46,6 @@ defmodule Gallformers.Authorship.ClassifierTest do
     ]
   end
 
-  defp druon_aliases do
-    [
-      "Andricus ignota",
-      "Andricus ignotus",
-      "Cynips ignota",
-      "Diplolepis ignota",
-      "Dryophanta ignota",
-      "Rhodites ignota"
-    ]
-  end
-
   describe "epithet_stem/1" do
     test "collapses Latin gender variants onto one stem" do
       assert Classifier.epithet_stem("ignota") == "ignot"
@@ -175,7 +164,7 @@ defmodule Gallformers.Authorship.ClassifierTest do
 
   describe "derive/3" do
     test "recovers the published authorship for Druon ignotum" do
-      result = Classifier.derive("Druon ignotum", druon_aliases(), druon_sources())
+      result = Classifier.derive("Druon ignotum", druon_sources())
 
       assert result.authorship == "(Bassett, 1881)"
       assert result.confidence == :high
@@ -185,7 +174,7 @@ defmodule Gallformers.Authorship.ClassifierTest do
     end
 
     test "does not take authorship from a source that merely used the name" do
-      result = Classifier.derive("Druon ignotum", druon_aliases(), druon_sources())
+      result = Classifier.derive("Druon ignotum", druon_sources())
 
       refute result.authorship =~ "Weld"
       refute result.authorship =~ "1959"
@@ -198,7 +187,7 @@ defmodule Gallformers.Authorship.ClassifierTest do
         %{id: 2, author: "Ashmead", pubyear: "1885", description: "Andricus ignota, n. sp.\n\ny"}
       ]
 
-      result = Classifier.derive("Druon ignotum", [], sources)
+      result = Classifier.derive("Druon ignotum", sources)
 
       assert result.confidence == :review
       assert result.reason == :multiple_original_descriptions
@@ -211,7 +200,7 @@ defmodule Gallformers.Authorship.ClassifierTest do
         %{id: 9, author: "ME Jones", pubyear: "1926", description: "Diplolepis ignota \n\n body"}
       ]
 
-      result = Classifier.derive("Druon ignotum", druon_aliases(), sources)
+      result = Classifier.derive("Druon ignotum", sources)
 
       assert result.confidence == :candidate
       assert result.reason == :oldest_source_leading_with_own_name
@@ -224,7 +213,7 @@ defmodule Gallformers.Authorship.ClassifierTest do
         %{id: 58, author: "Gallformers", pubyear: "2023", description: "The phenotype varies."}
       ]
 
-      result = Classifier.derive("Druon ignotum", [], sources)
+      result = Classifier.derive("Druon ignotum", sources)
 
       assert result.authorship == nil
       assert result.confidence == :none
@@ -235,9 +224,107 @@ defmodule Gallformers.Authorship.ClassifierTest do
         %{id: 3, author: "Someone", pubyear: "1900", description: "Quercus alba \n\n body"}
       ]
 
-      result = Classifier.derive("Druon ignotum", druon_aliases(), sources)
+      result = Classifier.derive("Druon ignotum", sources)
 
       assert result.confidence == :none
+    end
+
+    test "a heterotypic alias does not supply the species' authorship" do
+      # Neuroterus vernus is a separate description sunk into this species. Its
+      # author and year belong to the synonym, not to Neuroterus niger.
+      sources = [
+        %{id: 4, author: "LH Weld", pubyear: "1926", description: "Neuroterus vernus \n\n body"}
+      ]
+
+      result = Classifier.derive("Neuroterus niger", sources)
+
+      assert result.confidence == :none
+    end
+  end
+
+  describe "generation_stem/1" do
+    test "strips either generation qualifier" do
+      assert Classifier.generation_stem("Druon ignotum (agamic)") == "Druon ignotum"
+      assert Classifier.generation_stem("Druon ignotum (sexgen)") == "Druon ignotum"
+      assert Classifier.generation_stem("Druon ignotum") == "Druon ignotum"
+    end
+  end
+
+  describe "derive_generations/1" do
+    test "the senior name's authorship applies to both generations" do
+      # Described separately, as different species, until the life cycle was
+      # closed. Bassett's 1890 sexgen name is senior, so by priority it becomes
+      # the valid name of both rows; Weld's 1920 agamic name survives only as a
+      # deprecated synonym of the generation it was described from.
+      rows = [
+        %{
+          name: "Neuroterus vernus (sexgen)",
+          sources: [
+            %{
+              id: 1,
+              author: "HF Bassett",
+              pubyear: "1890",
+              description: "Neuroterus vernus, n. sp.\n\nbody"
+            }
+          ]
+        },
+        %{
+          name: "Neuroterus vernus (agamic)",
+          sources: [
+            %{
+              id: 2,
+              author: "LH Weld",
+              pubyear: "1920",
+              description: "Neuroterus agamica, n. sp.\n\nbody"
+            }
+          ]
+        }
+      ]
+
+      results = Classifier.derive_generations(rows)
+
+      assert results["Neuroterus vernus (sexgen)"].authorship == "Bassett, 1890"
+      assert results["Neuroterus vernus (agamic)"].authorship == "Bassett, 1890"
+      assert results["Neuroterus vernus (agamic)"].reason == :earliest_original_description
+    end
+
+    test "pools sources so a generation lacking the original description still resolves" do
+      # The real Druon failure: source 20 hangs off the agamic row only, but
+      # both rows bear the name it established.
+      rows = [
+        %{
+          name: "Druon ignotum (agamic)",
+          sources: druon_sources()
+        },
+        %{
+          name: "Druon ignotum (sexgen)",
+          sources: [
+            %{
+              id: 554,
+              author: "Victor Cuesta-Porta, George Melika",
+              pubyear: "2022",
+              description: "Druon ignotum (Bassett, 1881), comb. nov.\n\nbody"
+            }
+          ]
+        }
+      ]
+
+      results = Classifier.derive_generations(rows)
+
+      assert results["Druon ignotum (agamic)"].authorship == "(Bassett, 1881)"
+      assert results["Druon ignotum (sexgen)"].authorship == "(Bassett, 1881)"
+      refute results["Druon ignotum (sexgen)"].authorship =~ "Cuesta-Porta"
+    end
+
+    test "a lone row keeps derive/3 semantics" do
+      rows = [
+        %{name: "Druon ignotum", sources: druon_sources()}
+      ]
+
+      results = Classifier.derive_generations(rows)
+
+      assert results["Druon ignotum"].confidence == :high
+      assert results["Druon ignotum"].reason == :single_original_description
     end
   end
 end

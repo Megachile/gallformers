@@ -219,22 +219,106 @@ defmodule Gallformers.Authorship.Classifier do
   Confidence is:
 
     * `:high` — exactly one attached source announces an original description
+      *of this name*
     * `:review` — several do, so a human picks
     * `:candidate` — none announce one, but the oldest attached source leads
-      with a name belonging to this species (its own name or one of its
-      homotypic aliases). Proposed, never applied blind.
+      with a homotypic name. Proposed, never applied blind.
     * `:none` — nothing to go on
+
+  A source announcing an original description of some *other* name — a junior
+  synonym described from this species, say — is not a basionym candidate. Its
+  author and year belong to that synonym.
+
+  Aliases are deliberately not consulted: a homotypic alias shares the
+  species' epithet stem and so is already matched by `own_name?`, and a
+  heterotypic one carries authorship that is not this species'.
   """
-  @spec derive(String.t(), [String.t()], [source()]) :: map()
-  def derive(species_name, alias_names, sources) do
+  @spec derive(String.t(), [source()]) :: map()
+  def derive(species_name, sources) do
     scored = Enum.map(sources, &score(species_name, &1))
 
-    case Enum.filter(scored, & &1.original_description?) do
+    case Enum.filter(scored, &basionym_candidate?/1) do
       [only] -> build(species_name, only, :high, :single_original_description)
-      [] -> candidate(species_name, alias_names, scored)
+      [] -> candidate(species_name, scored)
       several -> ambiguous(species_name, several)
     end
   end
+
+  @doc """
+  Strips the generation qualifier from a species name, giving the name the two
+  generations of one wasp share.
+
+      iex> generation_stem("Druon ignotum (agamic)")
+      "Druon ignotum"
+  """
+  @spec generation_stem(String.t()) :: String.t()
+  def generation_stem(name) when is_binary(name) do
+    name |> String.replace(~r/\s*\((?:#{Enum.join(@qualifiers, "|")})\)\s*/, " ") |> String.trim()
+  end
+
+  @doc """
+  Derives authorship for all generations of one wasp at once.
+
+  The two generations were often described separately, as different species,
+  until someone closed the life cycle. From that point both rows carry the
+  same valid name, so they carry the same authorship: the senior one, by
+  priority. Sources are therefore pooled across the generations — the valid
+  name's original description is frequently attached to only one of the rows.
+
+  Aliases are *not* pooled. A junior name stays a deprecated synonym of the
+  generation it was described from, and keeps its own author and year. That
+  separation is automatic here: a junior name has a different epithet, so it
+  is heterotypic with the valid name and never competes to be the basionym.
+
+  Takes a list of `%{name:, sources:}` and returns a map of name to result. A
+  single-element list falls through to `derive/2`, which keeps the `:review`
+  signal meaningful for species that are not generation-split.
+  """
+  @spec derive_generations([%{name: String.t(), sources: [source()]}]) :: %{String.t() => map()}
+  def derive_generations([single]) do
+    %{single.name => derive(single.name, single.sources)}
+  end
+
+  def derive_generations([first | _] = rows) do
+    valid_name = generation_stem(first.name)
+
+    pooled =
+      rows
+      |> Enum.flat_map(& &1.sources)
+      |> Enum.map(&score(valid_name, &1))
+
+    case Enum.filter(pooled, &basionym_candidate?/1) do
+      [] -> pooled_candidate(valid_name, pooled, rows)
+      candidates -> senior_result(valid_name, candidates, rows)
+    end
+  end
+
+  # No marked original description anywhere in the pair. Fall back to the
+  # oldest pooled source leading with a homotypic name, and give both rows the
+  # same answer — priority applies here too, and two generations of one wasp
+  # showing different authorship is always wrong.
+  defp pooled_candidate(valid_name, pooled, rows) do
+    pooled
+    |> Enum.filter(fn scored -> scored.own_name? and not is_nil(scored.year) end)
+    |> Enum.min_by(& &1.year, fn -> nil end)
+    |> case do
+      nil -> Map.new(rows, &{&1.name, none()})
+      oldest -> share(rows, build(valid_name, oldest, :candidate, :oldest_pooled_source))
+    end
+  end
+
+  defp basionym_candidate?(scored) do
+    scored.original_description? and scored.own_name? and not is_nil(scored.year)
+  end
+
+  # Priority: the earliest available name wins, and applies to both generations.
+  defp senior_result(valid_name, candidates, rows) do
+    senior = Enum.min_by(candidates, & &1.year)
+
+    share(rows, build(valid_name, senior, :high, :earliest_original_description))
+  end
+
+  defp share(rows, result), do: Map.new(rows, &{&1.name, result})
 
   # -- internals ------------------------------------------------------------
 
@@ -270,14 +354,13 @@ defmodule Gallformers.Authorship.Classifier do
   # No source announces an original description. The oldest attached source
   # that leads with one of this species' own names is a plausible stand-in,
   # but it is only ever proposed for review.
-  defp candidate(species_name, alias_names, scored) do
-    known = [species_name | alias_names]
-
+  #
+  # Only homotypic leading names qualify. A heterotypic alias carries its own
+  # author and year — those belong to the synonym, not to this species — so
+  # matching against the alias list would import the wrong authorship.
+  defp candidate(species_name, scored) do
     scored
-    |> Enum.filter(fn s ->
-      not is_nil(s.year) and not is_nil(s.leading_name) and
-        (s.own_name? or Enum.any?(known, &(classify(&1, s.leading_name) == :homotypic)))
-    end)
+    |> Enum.filter(fn s -> s.own_name? and not is_nil(s.year) end)
     |> Enum.min_by(& &1.year, fn -> nil end)
     |> case do
       nil -> none()

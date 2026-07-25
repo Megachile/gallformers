@@ -76,7 +76,7 @@ defmodule Gallformers.Galls.HostConsistencyTest do
     src = source(id: opts[:source_id])
     if description, do: note(gall.id, src.id, description)
 
-    %{gall: gall, host: host, gfam: gfam, hfam: hfam, src: src}
+    %{gall: gall, host: host, gfam: gfam, ggen: ggen, hfam: hfam, hgen: hgen, src: src}
   end
 
   defp uniq_genus, do: "Testoak#{System.unique_integer([:positive])}"
@@ -148,6 +148,32 @@ defmodule Gallformers.Galls.HostConsistencyTest do
 
     other = taxon("OtherFam#{System.unique_integer([:positive])}", "family")
     assert %{total: 0} = Galls.host_discrepancies(%{host_taxon_id: other.id})
+  end
+
+  test "host_taxon_id accepts a genus node and scopes to species under it" do
+    g = uniq_genus()
+    %{hgen: hgen} = scenario("#{g} alba", "on #{g} rubra")
+
+    assert %{total: 1} = Galls.host_discrepancies(%{host_taxon_id: hgen.id})
+
+    other_gen = taxon("OtherGen#{System.unique_integer([:positive])}", "genus")
+    assert %{total: 0} = Galls.host_discrepancies(%{host_taxon_id: other_gen.id})
+  end
+
+  test "host_species_ids narrows to exactly the chosen host species" do
+    g = uniq_genus()
+    %{host: host, hgen: hgen} = scenario("#{g} alba", "on #{g} rubra")
+    # a sibling species under the same genus that is NOT this gall's host
+    sibling = species("#{g} rubra", "plant")
+    link_taxon(sibling.id, hgen.id)
+
+    assert %{total: 1, items: [item]} =
+             Galls.host_discrepancies(%{host_species_ids: [host.id]})
+
+    assert item.host_id == host.id
+
+    # scoping to the sibling species (not an association) yields nothing
+    assert %{total: 0} = Galls.host_discrepancies(%{host_species_ids: [sibling.id]})
   end
 
   test "has_gf_notes filter separates galls with/without GF Notes (source 58)" do
@@ -251,7 +277,8 @@ defmodule Gallformers.Galls.HostConsistencyTest do
     status = Map.new(d.hosts, &{&1.host_name, &1.documented})
     assert status["#{g} alba"] == true
     assert status["#{g} stellata"] == false
-    assert Enum.any?(d.mentions, &(&1.host_name == "#{g} rubra"))
+    mention_names = Enum.map(d.mentions, & &1.host_name)
+    assert "#{g} rubra" in mention_names
     assert length(d.sources) == 1
   end
 

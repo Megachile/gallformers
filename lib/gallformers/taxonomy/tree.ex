@@ -842,28 +842,59 @@ defmodule Gallformers.Taxonomy.Tree do
 
   @doc """
   Returns species IDs of the given `taxoncode` (`"gall"` / `"plant"`) that fall
-  under a taxonomy node — a family or any intermediate rank (subfamily / tribe).
+  under a taxonomy node — a family, any intermediate rank (subfamily / tribe), or
+  a genus node itself.
 
-  Walks the tree to every descendant genus (reusing `genus_ids_for_family/1`,
-  whose descent is generic) and then resolves species through `species_taxonomy`.
+  For a family/intermediate it walks the tree to every descendant genus (reusing
+  `genus_ids_for_family/1`, whose descent is generic); for a genus node it
+  resolves that genus directly. Species are resolved through `species_taxonomy`.
   Returns `[]` for a node with no genera underneath.
   """
   @spec species_ids_under_taxon(integer(), String.t()) :: [integer()]
   def species_ids_under_taxon(taxon_id, taxoncode) do
-    case genus_ids_for_family(taxon_id) do
+    genus_ids =
+      if genus_node?(taxon_id), do: [taxon_id], else: genus_ids_for_family(taxon_id)
+
+    case genus_ids do
       [] ->
         []
 
-      genus_ids ->
+      ids ->
         from(st in "species_taxonomy",
           join: s in "species",
           on: s.id == st.species_id,
-          where: st.taxonomy_id in ^genus_ids and s.taxoncode == ^taxoncode,
+          where: st.taxonomy_id in ^ids and s.taxoncode == ^taxoncode,
           distinct: true,
           select: st.species_id
         )
         |> Repo.all()
     end
+  end
+
+  defp genus_node?(taxon_id) do
+    from(t in Taxonomy, where: t.id == ^taxon_id and t.type == "genus", select: t.id)
+    |> Repo.one()
+    |> is_integer()
+  end
+
+  @doc """
+  Species of the given `taxoncode` sitting directly under a genus node, ordered
+  by name. Excludes genus-level placeholder species. Returns `[]` for a
+  non-genus node or a genus with no species.
+  """
+  @spec list_species_for_genus(integer(), String.t()) :: [%{id: integer(), name: String.t()}]
+  def list_species_for_genus(genus_id, taxoncode) do
+    from(st in "species_taxonomy",
+      join: s in "species",
+      on: s.id == st.species_id,
+      where:
+        st.taxonomy_id == ^genus_id and s.taxoncode == ^taxoncode and
+          s.genus_placeholder == false,
+      distinct: true,
+      order_by: s.name,
+      select: %{id: s.id, name: s.name}
+    )
+    |> Repo.all()
   end
 
   @doc """

@@ -66,4 +66,39 @@ defmodule GallformersWeb.Admin.HostConsistencyGallLiveTest do
     {:ok, _view, html} = live(conn, ~p"/admin/host-consistency/gall/99999999")
     assert html =~ "could not be found"
   end
+
+  test "draft helper builds an iNat identify link then a GF Note", %{conn: conn} do
+    u = System.unique_integer([:positive])
+    gall = species("Testgall#{u} (agamic)", "gall")
+    host = species("Quercus margaretiae#{u}", "plant")
+    src = source("Monograph #{u}")
+
+    Repo.insert!(%Gallformers.Species.SpeciesSource{
+      species_id: gall.id,
+      source_id: src.id,
+      description: "found on other oaks"
+    })
+
+    Repo.insert!(%Gallformers.Galls.GallHost{gall_species_id: gall.id, host_species_id: host.id})
+
+    {:ok, view, _html} = live(conn, ~p"/admin/host-consistency/gall/#{gall.id}")
+
+    # Step 1: a numeric code + a host produces the pre-filtered Identify link.
+    html =
+      view
+      |> element("form[phx-change=update_draft]")
+      |> render_change(%{code: "123456", host: "Quercus margaretiae#{u}"})
+
+    assert html =~ "observations/identify?taxon_id=123456"
+    assert html =~ "field:Host%20Plant%20ID=Quercus%20margaretiae#{u}"
+
+    # Step 2: pasting an observation (bare id here) drafts the GF Note text.
+    html =
+      view
+      |> element("form[phx-change=update_draft]")
+      |> render_change(%{code: "123456", host: "Quercus margaretiae#{u}", obs: "987654"})
+
+    assert html =~ "Quercus margaretiae#{u} added tentatively as a host based on this"
+    assert html =~ "https://www.inaturalist.org/observations/987654"
+  end
 end

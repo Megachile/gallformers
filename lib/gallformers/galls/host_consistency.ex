@@ -55,6 +55,7 @@ defmodule Gallformers.Galls.HostConsistency do
   @type filter :: %{
           optional(:gall_taxon_id) => integer() | nil,
           optional(:host_taxon_id) => integer() | nil,
+          optional(:host_species_ids) => [integer()] | nil,
           optional(:direction) => :a | :b | :both,
           optional(:has_gf_notes) => :any | :with | :without,
           optional(:undescribed) => :any | :only | :exclude,
@@ -83,8 +84,9 @@ defmodule Gallformers.Galls.HostConsistency do
   def discrepancies(filter \\ %{}) do
     gall_taxon_id = filter[:gall_taxon_id]
     host_taxon_id = filter[:host_taxon_id]
+    host_species_ids = filter[:host_species_ids]
 
-    if is_nil(gall_taxon_id) and is_nil(host_taxon_id) do
+    if is_nil(gall_taxon_id) and is_nil(host_taxon_id) and is_nil(host_species_ids) do
       %{items: [], total: 0, truncated: false}
     else
       run(filter, gall_taxon_id, host_taxon_id)
@@ -163,7 +165,8 @@ defmodule Gallformers.Galls.HostConsistency do
     direction = normalize_direction(filter[:direction])
     undescribed = normalize_undescribed(filter[:undescribed])
 
-    assocs = load_associations(gall_taxon_id, host_taxon_id, undescribed)
+    host_ids = resolve_host_ids(filter[:host_species_ids], host_taxon_id)
+    assocs = load_associations(gall_taxon_id, host_ids, undescribed)
 
     b_gall_ids =
       if direction in [:b, :both],
@@ -181,7 +184,7 @@ defmodule Gallformers.Galls.HostConsistency do
 
     b_items =
       if direction in [:b, :both],
-        do: direction_b(b_gall_ids, descriptions, gall_names, host_taxon_id, has_gf_notes),
+        do: direction_b(b_gall_ids, descriptions, gall_names, host_ids, has_gf_notes),
         else: []
 
     all = a_items ++ b_items
@@ -222,10 +225,10 @@ defmodule Gallformers.Galls.HostConsistency do
 
   # --- Direction B: plant named in prose, no gallhost row ----------------------
 
-  defp direction_b(gall_ids, descriptions, gall_names, host_taxon_id, has_gf_notes) do
+  defp direction_b(gall_ids, descriptions, gall_names, host_ids, has_gf_notes) do
     index = plant_index()
     existing = load_host_ids_by_gall(gall_ids)
-    host_scope = host_scope_set(host_taxon_id)
+    host_scope = host_scope_set(host_ids)
 
     Enum.flat_map(gall_ids, fn gid ->
       descs = descriptions[gid] || []
@@ -285,13 +288,24 @@ defmodule Gallformers.Galls.HostConsistency do
   defp b_gall_scope(assocs, nil, _undescribed),
     do: assocs |> Enum.map(& &1.gall_id) |> Enum.uniq()
 
-  defp host_scope_set(nil), do: nil
+  # Resolves the host scope to a concrete species-id list. An explicit species
+  # selection (from the species dropdown — its own id-space) wins; otherwise a
+  # taxonomy node (family / tribe / genus) is expanded. `nil` = no host filter.
+  defp resolve_host_ids(species_ids, _host_taxon_id)
+       when is_list(species_ids) and species_ids != [],
+       do: species_ids
 
-  defp host_scope_set(host_taxon_id),
-    do: MapSet.new(Tree.species_ids_under_taxon(host_taxon_id, "plant"))
+  defp resolve_host_ids(_species_ids, host_taxon_id) when is_integer(host_taxon_id),
+    do: Tree.species_ids_under_taxon(host_taxon_id, "plant")
+
+  defp resolve_host_ids(_species_ids, _host_taxon_id), do: nil
+
+  defp host_scope_set(nil), do: nil
+  defp host_scope_set(ids) when is_list(ids), do: MapSet.new(ids)
 
   # Loads gall↔host associations in scope, with the host's name + placeholder flag.
-  defp load_associations(gall_taxon_id, host_taxon_id, undescribed) do
+  # `host_ids` is an already-resolved species-id list (or nil for no host filter).
+  defp load_associations(gall_taxon_id, host_ids, undescribed) do
     query =
       from(gh in GallHost,
         join: hs in Species,
@@ -306,7 +320,7 @@ defmodule Gallformers.Galls.HostConsistency do
 
     query
     |> scope_galls(gall_taxon_id)
-    |> scope_hosts(host_taxon_id)
+    |> scope_hosts(host_ids)
     |> scope_undescribed(undescribed)
     |> Repo.all()
   end
@@ -357,10 +371,8 @@ defmodule Gallformers.Galls.HostConsistency do
 
   defp scope_hosts(query, nil), do: query
 
-  defp scope_hosts(query, host_taxon_id) do
-    ids = Tree.species_ids_under_taxon(host_taxon_id, "plant")
-    from([gh, _hs] in query, where: gh.host_species_id in ^ids)
-  end
+  defp scope_hosts(query, ids) when is_list(ids),
+    do: from([gh, _hs] in query, where: gh.host_species_id in ^ids)
 
   # gall_id => [%{source_id, description}] (non-empty descriptions only)
   defp load_descriptions([]), do: %{}

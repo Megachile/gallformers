@@ -40,6 +40,8 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
     gall_tribe = parse_int(params["gtribe"])
     host_family = parse_int(params["hfam"])
     host_tribe = parse_int(params["htribe"])
+    host_genus = parse_int(params["hgen"])
+    host_species = parse_int(params["hsp"])
     notes = parse_notes(params["notes"])
     direction = parse_direction(params["dir"])
     undescribed = parse_undescribed(params["und"])
@@ -52,6 +54,8 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
       |> assign(:gall_tribe, gall_tribe)
       |> assign(:host_family, host_family)
       |> assign(:host_tribe, host_tribe)
+      |> assign(:host_genus, host_genus)
+      |> assign(:host_species, host_species)
       |> assign(:notes, notes)
       |> assign(:direction, direction)
       |> assign(:undescribed, undescribed)
@@ -59,6 +63,8 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
       |> assign(:sort_order, sort_order)
       |> assign(:gall_tribes, tribe_options(gall_family))
       |> assign(:host_tribes, tribe_options(host_family))
+      |> assign(:host_genera, genus_options(host_tribe || host_family))
+      |> assign(:host_species_opts, species_options(host_genus))
       |> load_discrepancies()
 
     {:noreply, socket}
@@ -76,11 +82,19 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
 
   @impl true
   def handle_event("host_family", %{"value" => v}, socket),
-    do: {:noreply, push_filter(socket, hfam: v, htribe: nil)}
+    do: {:noreply, push_filter(socket, hfam: v, htribe: nil, hgen: nil, hsp: nil)}
 
   @impl true
   def handle_event("host_tribe", %{"value" => v}, socket),
-    do: {:noreply, push_filter(socket, htribe: v)}
+    do: {:noreply, push_filter(socket, htribe: v, hgen: nil, hsp: nil)}
+
+  @impl true
+  def handle_event("host_genus", %{"value" => v}, socket),
+    do: {:noreply, push_filter(socket, hgen: v, hsp: nil)}
+
+  @impl true
+  def handle_event("host_species", %{"value" => v}, socket),
+    do: {:noreply, push_filter(socket, hsp: v)}
 
   @impl true
   def handle_event("notes", %{"value" => v}, socket),
@@ -109,7 +123,9 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
   defp load_discrepancies(socket) do
     filter = %{
       gall_taxon_id: socket.assigns.gall_tribe || socket.assigns.gall_family,
-      host_taxon_id: socket.assigns.host_tribe || socket.assigns.host_family,
+      host_taxon_id:
+        socket.assigns.host_genus || socket.assigns.host_tribe || socket.assigns.host_family,
+      host_species_ids: host_species_ids(socket.assigns.host_species),
       has_gf_notes: socket.assigns.notes,
       direction: socket.assigns.direction,
       undescribed: socket.assigns.undescribed,
@@ -133,6 +149,25 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
     |> Enum.sort()
   end
 
+  defp genus_options(nil), do: []
+
+  defp genus_options(node_id) do
+    node_id
+    |> Tree.list_genera_for_family()
+    |> Enum.map(&{&1.name, &1.id})
+  end
+
+  defp species_options(nil), do: []
+
+  defp species_options(genus_id) do
+    genus_id
+    |> Tree.list_species_for_genus("plant")
+    |> Enum.map(&{&1.name, &1.id})
+  end
+
+  defp host_species_ids(nil), do: nil
+  defp host_species_ids(species_id), do: [species_id]
+
   # --- URL params ------------------------------------------------------------
 
   defp push_filter(socket, overrides) do
@@ -141,6 +176,8 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
       gtribe: socket.assigns.gall_tribe,
       hfam: socket.assigns.host_family,
       htribe: socket.assigns.host_tribe,
+      hgen: socket.assigns.host_genus,
+      hsp: socket.assigns.host_species,
       notes: socket.assigns.notes,
       dir: socket.assigns.direction,
       und: socket.assigns.undescribed,
@@ -277,6 +314,22 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
                       options={[{"All tribes", ""} | @host_tribes]}
                     />
                   </form>
+                  <form :if={@host_genera != []} phx-change="host_genus" class="w-48">
+                    <.input
+                      type="select"
+                      name="value"
+                      value={@host_genus}
+                      options={[{"All genera", ""} | @host_genera]}
+                    />
+                  </form>
+                  <form :if={@host_species_opts != []} phx-change="host_species" class="w-48">
+                    <.input
+                      type="select"
+                      name="value"
+                      value={@host_species}
+                      options={[{"All species", ""} | @host_species_opts]}
+                    />
+                  </form>
                 </div>
               </fieldset>
             </div>
@@ -368,6 +421,16 @@ defmodule GallformersWeb.Admin.HostConsistencyLive do
               class="mb-3 p-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800"
             >
               Showing the first {length(@items)} of {@total}. Narrow by tribe to see the rest.
+            </div>
+
+            <div
+              :if={any_filter?(assigns) and @items != []}
+              class="mb-2 flex items-baseline gap-2"
+            >
+              <span class="text-lg font-semibold text-gf-maroon">{@total}</span>
+              <span class="text-sm text-gray-600">
+                {if @total == 1, do: "discrepancy", else: "discrepancies"} in this selection
+              </span>
             </div>
 
             <.table :if={any_filter?(assigns) and @items != []} id="host-consistency" rows={@items}>

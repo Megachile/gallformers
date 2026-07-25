@@ -33,6 +33,7 @@ defmodule Gallformers.Authorship.Classifier do
   Only an unparenthesised name carries its own author and year.
   """
 
+  alias Gallformers.Authorship.Citation
   alias Gallformers.TaxonName
 
   # Latin gender endings, longest first so "orum" is preferred over "um".
@@ -216,31 +217,146 @@ defmodule Gallformers.Authorship.Classifier do
   `:confidence` and `:reason`, plus the basionym and source it came from so a
   reviewer can check the call.
 
+  Two independent lines of evidence, preferred in this order:
+
+    1. A **citation line** in some source's body text stating this name's
+       authorship outright. Explicit beats inferred, and it survives being
+       reproduced in a catalogue or a modern revision.
+    2. An attached source that **announces an original description** (`n. sp.`)
+       of this name, whose own author and year then supply the authorship.
+
   Confidence is:
 
-    * `:high` — exactly one attached source announces an original description
-      *of this name*
-    * `:review` — several do, so a human picks
-    * `:candidate` — none announce one, but the oldest attached source leads
-      with a homotypic name. Proposed, never applied blind.
+    * `:high` — either line of evidence resolved
+    * `:review` — several sources announce an original description, so a human
+      picks
     * `:none` — nothing to go on
+
+  There is deliberately no tier that falls back to the metadata of whatever
+  source happens to be oldest. That was tried, and it mostly returned the
+  authorship of a later revision or a catalogue: `Aceria neoessigi` came out
+  as `Amrine, 2019` when the body text of that very entry reads
+  `Keifer, 1940`.
 
   A source announcing an original description of some *other* name — a junior
   synonym described from this species, say — is not a basionym candidate. Its
   author and year belong to that synonym.
-
-  Aliases are deliberately not consulted: a homotypic alias shares the
-  species' epithet stem and so is already matched by `own_name?`, and a
-  heterotypic one carries authorship that is not this species'.
   """
   @spec derive(String.t(), [source()]) :: map()
   def derive(species_name, sources) do
+    cited = authorship_from_citations(species_name, citations(sources))
+    marked = marked_source_result(species_name, sources)
+
+    reconcile(cited, marked)
+  end
+
+  defp marked_source_result(species_name, sources) do
     scored = Enum.map(sources, &score(species_name, &1))
 
     case Enum.filter(scored, &basionym_candidate?/1) do
       [only] -> build(species_name, only, :high, :single_original_description)
-      [] -> candidate(species_name, scored)
+      [] -> nil
       several -> ambiguous(species_name, several)
+    end
+  end
+
+  # Two independent readings of the same record. Agreement is the strongest
+  # evidence available here; disagreement is a question for a person, not
+  # something to settle by preferring one method. In the dev data they part
+  # company over transcribed years (Bassett 1990 for 1900), misspelled genera
+  # (Bassetia for Bassettia, which fakes a genus change), and transliterated
+  # umlauts (Beutenmüller / Beutenmueller / Beutenmuller).
+  defp reconcile(nil, nil), do: none()
+  defp reconcile(nil, marked), do: marked
+  defp reconcile(cited, nil), do: cited
+
+  defp reconcile(%{authorship: same} = cited, %{authorship: same}),
+    do: %{cited | reason: :corroborated}
+
+  defp reconcile(cited, marked) do
+    %{
+      cited
+      | confidence: :review,
+        reason: :evidence_disagrees,
+        alternative: marked.authorship
+    }
+  end
+
+  @doc """
+  Collects every authorship-bearing citation line across a set of sources.
+  """
+  @spec citations([source()]) :: [Citation.t()]
+  def citations(sources) do
+    Enum.flat_map(sources, fn source ->
+      source
+      |> Map.get(:description)
+      |> Citation.parse(citing_year(source))
+      |> Enum.map(&%{&1 | source_id: Map.get(source, :id)})
+    end)
+  end
+
+  @doc """
+  Resolves one name's authorship from a pool of citation lines.
+
+  Only lines naming something homotypic with `name` are relevant — a
+  heterotypic line belongs to a different basionym, which is precisely how a
+  junior synonym keeps its own author and year. Returns `nil` when the pool
+  says nothing about this name.
+  """
+  @spec authorship_from_citations(String.t(), [Citation.t()]) :: map() | nil
+  def authorship_from_citations(name, citations) do
+    citations
+    |> Enum.filter(&(classify(name, &1.name) == :homotypic))
+    |> Citation.basionym()
+    |> case do
+      nil ->
+        nil
+
+      basionym ->
+        %{
+          authorship:
+            format_authorship(
+              basionym.author,
+              to_string(basionym.year),
+              already_parenthesised?(basionym) or parenthesised?(name, basionym.name)
+            ),
+          confidence: :high,
+          reason: :cited_original_description,
+          basionym: basionym.name,
+          source_id: basionym.source_id,
+          alternative: nil
+        }
+    end
+  end
+
+  @doc """
+  Authorship for each scientific synonym, read from the same citation pool.
+
+  A homotypic synonym resolves to the species' own basionym; a heterotypic one
+  resolves to its own, which is the whole point — the junior name keeps the
+  author and year it was published under. Names the citations say nothing
+  about are omitted.
+  """
+  @spec alias_authorships([String.t()], [Citation.t()]) :: %{String.t() => String.t()}
+  def alias_authorships(alias_names, citations) do
+    alias_names
+    |> Enum.map(fn name -> {name, authorship_from_citations(name, citations)} end)
+    |> Enum.reject(fn {_name, result} -> is_nil(result) or is_nil(result.authorship) end)
+    |> Map.new(fn {name, result} -> {name, result.authorship} end)
+  end
+
+  # A `:parenthesised` citation has already made the call: the source wrote
+  # `Phylloteras poculum (Osten Sacken, 1862)` precisely because the name has
+  # moved genus since. Recomputing that by comparing the citation's genus to
+  # the current one would compare the name to itself and wrongly drop the
+  # parentheses — the original genus is not in the line at all.
+  defp already_parenthesised?(%Citation{shape: :parenthesised}), do: true
+  defp already_parenthesised?(%Citation{}), do: false
+
+  defp citing_year(source) do
+    case year(Map.get(source, :pubyear)) do
+      nil -> nil
+      parsed -> String.to_integer(parsed)
     end
   end
 
@@ -281,29 +397,21 @@ defmodule Gallformers.Authorship.Classifier do
 
   def derive_generations([first | _] = rows) do
     valid_name = generation_stem(first.name)
+    pooled_sources = Enum.flat_map(rows, & &1.sources)
 
-    pooled =
-      rows
-      |> Enum.flat_map(& &1.sources)
-      |> Enum.map(&score(valid_name, &1))
+    cited = authorship_from_citations(valid_name, citations(pooled_sources))
+    marked = pooled_marked_result(valid_name, pooled_sources)
 
-    case Enum.filter(pooled, &basionym_candidate?/1) do
-      [] -> pooled_candidate(valid_name, pooled, rows)
-      candidates -> senior_result(valid_name, candidates, rows)
-    end
+    share(rows, reconcile(cited, marked))
   end
 
-  # No marked original description anywhere in the pair. Fall back to the
-  # oldest pooled source leading with a homotypic name, and give both rows the
-  # same answer — priority applies here too, and two generations of one wasp
-  # showing different authorship is always wrong.
-  defp pooled_candidate(valid_name, pooled, rows) do
-    pooled
-    |> Enum.filter(fn scored -> scored.own_name? and not is_nil(scored.year) end)
-    |> Enum.min_by(& &1.year, fn -> nil end)
+  defp pooled_marked_result(valid_name, pooled_sources) do
+    pooled_sources
+    |> Enum.map(&score(valid_name, &1))
+    |> Enum.filter(&basionym_candidate?/1)
     |> case do
-      nil -> Map.new(rows, &{&1.name, none()})
-      oldest -> share(rows, build(valid_name, oldest, :candidate, :oldest_pooled_source))
+      [] -> nil
+      candidates -> senior(valid_name, candidates)
     end
   end
 
@@ -312,10 +420,10 @@ defmodule Gallformers.Authorship.Classifier do
   end
 
   # Priority: the earliest available name wins, and applies to both generations.
-  defp senior_result(valid_name, candidates, rows) do
+  defp senior(valid_name, candidates) do
     senior = Enum.min_by(candidates, & &1.year)
 
-    share(rows, build(valid_name, senior, :high, :earliest_original_description))
+    build(valid_name, senior, :high, :earliest_original_description)
   end
 
   defp share(rows, result), do: Map.new(rows, &{&1.name, result})
@@ -347,25 +455,9 @@ defmodule Gallformers.Authorship.Classifier do
       confidence: confidence,
       reason: reason,
       basionym: scored.leading_name,
-      source_id: scored.source_id
+      source_id: scored.source_id,
+      alternative: nil
     }
-  end
-
-  # No source announces an original description. The oldest attached source
-  # that leads with one of this species' own names is a plausible stand-in,
-  # but it is only ever proposed for review.
-  #
-  # Only homotypic leading names qualify. A heterotypic alias carries its own
-  # author and year — those belong to the synonym, not to this species — so
-  # matching against the alias list would import the wrong authorship.
-  defp candidate(species_name, scored) do
-    scored
-    |> Enum.filter(fn s -> s.own_name? and not is_nil(s.year) end)
-    |> Enum.min_by(& &1.year, fn -> nil end)
-    |> case do
-      nil -> none()
-      oldest -> build(species_name, oldest, :candidate, :oldest_source_leading_with_own_name)
-    end
   end
 
   defp ambiguous(species_name, several) do
@@ -380,7 +472,8 @@ defmodule Gallformers.Authorship.Classifier do
       confidence: :none,
       reason: :no_usable_source,
       basionym: nil,
-      source_id: nil
+      source_id: nil,
+      alternative: nil
     }
   end
 

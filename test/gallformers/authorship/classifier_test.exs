@@ -168,8 +168,59 @@ defmodule Gallformers.Authorship.ClassifierTest do
 
       assert result.authorship == "(Bassett, 1881)"
       assert result.confidence == :high
-      assert result.reason == :single_original_description
       assert result.basionym == "Cynips ignota"
+    end
+
+    test "reports corroboration when both lines of evidence agree" do
+      # Bassett's 1881 entry announces the description; the 2022 revision's
+      # synonymy states the same authorship. Two independent readings agreeing
+      # is the strongest evidence available.
+      result = Classifier.derive("Druon ignotum", druon_sources())
+
+      assert result.reason == :corroborated
+      assert result.confidence == :high
+    end
+
+    test "flags for review when the two lines of evidence disagree" do
+      # The real Neuroterus umbilicatus conflict: a transcribed year of 1990
+      # for a name published in 1900.
+      sources = [
+        %{
+          id: 1,
+          author: "HF Bassett",
+          pubyear: "1900",
+          description: "Neuroterus umbilicatus, n. sp.\n\nbody"
+        },
+        %{
+          id: 2,
+          author: "Later Author",
+          pubyear: "2020",
+          description: "Neuroterus umbilicatus Bassett, 1990: 4."
+        }
+      ]
+
+      result = Classifier.derive("Neuroterus umbilicatus", sources)
+
+      assert result.confidence == :review
+      assert result.reason == :evidence_disagrees
+      assert result.authorship == "Bassett, 1990"
+      assert result.alternative == "Bassett, 1900"
+    end
+
+    test "falls back to a marked original description when no citation line exists" do
+      sources = [
+        %{
+          id: 20,
+          author: "HF Bassett",
+          pubyear: "1881",
+          description: "Cynips ignota, n. sp. \n\n Small oval cells"
+        }
+      ]
+
+      result = Classifier.derive("Druon ignotum", sources)
+
+      assert result.reason == :single_original_description
+      assert result.authorship == "(Bassett, 1881)"
       assert result.source_id == 20
     end
 
@@ -194,7 +245,10 @@ defmodule Gallformers.Authorship.ClassifierTest do
       assert Enum.sort(result.source_ids) == [1, 2]
     end
 
-    test "proposes the oldest source leading with one of the species' own names" do
+    test "sources that merely use the name yield nothing at all" do
+      # Previously these produced a :candidate from whichever source was
+      # oldest, which in the real data was usually a later revision or a
+      # catalogue. Silence is the correct answer.
       sources = [
         %{id: 14, author: "LH Weld", pubyear: "1959", description: "Andricus ignotus \n\n body"},
         %{id: 9, author: "ME Jones", pubyear: "1926", description: "Diplolepis ignota \n\n body"}
@@ -202,10 +256,49 @@ defmodule Gallformers.Authorship.ClassifierTest do
 
       result = Classifier.derive("Druon ignotum", sources)
 
-      assert result.confidence == :candidate
-      assert result.reason == :oldest_source_leading_with_own_name
-      assert result.basionym == "Diplolepis ignota"
-      assert result.authorship == "(Jones, 1926)"
+      assert result.confidence == :none
+      assert result.authorship == nil
+    end
+
+    test "keeps the parentheses a citation already carries" do
+      # The real Phylloteras poculum entry. The source wrote the parentheses
+      # because the name moved out of Cecidomyia; the original genus never
+      # appears in the line, so comparing genera would compare the name to
+      # itself and wrongly drop them.
+      sources = [
+        %{
+          id: 559,
+          author: "Nicholls et al.",
+          pubyear: "2022",
+          description: "Phylloteras poculum (Osten Sacken, 1862), sexual generation\n\nGall."
+        }
+      ]
+
+      result = Classifier.derive("Phylloteras poculum", sources)
+
+      assert result.authorship == "(Osten Sacken, 1862)"
+    end
+
+    test "reads authorship out of a catalogue that reproduces the citation" do
+      # The real Acalitus blastofagi entry: a 2009 revision whose body states
+      # Keifer's 1966 name. Crediting the 2009 authors would be wrong, and the
+      # 1994 catalogue line is a usage, not a description.
+      sources = [
+        %{
+          id: 135,
+          author: "Xiao-Feng Xue, Zi-Wei Song, Xiao-Yue Hong",
+          pubyear: "2009",
+          description:
+            "Aceria blastofagi\n\nAceria blastofagi Keifer, 1966b: 15.\nAceria blastofagi; Amrine & Stasny, 1994: 27."
+        }
+      ]
+
+      result = Classifier.derive("Acalitus blastofagi", sources)
+
+      assert result.authorship == "(Keifer, 1966)"
+      assert result.basionym == "Aceria blastofagi"
+      refute result.authorship =~ "Xue"
+      refute result.authorship =~ "Amrine"
     end
 
     test "returns nothing when no source leads with a usable name" do
@@ -316,7 +409,7 @@ defmodule Gallformers.Authorship.ClassifierTest do
       refute results["Druon ignotum (sexgen)"].authorship =~ "Cuesta-Porta"
     end
 
-    test "a lone row keeps derive/3 semantics" do
+    test "a lone row keeps derive/2 semantics" do
       rows = [
         %{name: "Druon ignotum", sources: druon_sources()}
       ]
@@ -324,7 +417,66 @@ defmodule Gallformers.Authorship.ClassifierTest do
       results = Classifier.derive_generations(rows)
 
       assert results["Druon ignotum"].confidence == :high
-      assert results["Druon ignotum"].reason == :single_original_description
+      assert results["Druon ignotum"].authorship == "(Bassett, 1881)"
+    end
+  end
+
+  describe "alias_authorships/2" do
+    test "a heterotypic synonym keeps the author and year it was published under" do
+      # Three separate descriptions sunk into one species. Each junior name
+      # keeps its own authorship; it does not inherit the species'.
+      sources = [
+        %{
+          id: 7,
+          author: "Revision",
+          pubyear: "2020",
+          description: """
+          Neuroterus niger Gillette, 1888: 12.
+          Neuroterus papillosus Beutenmueller, 1910: 4.
+          Neuroterus perminimus Bassett, 1900: 9.
+          """
+        }
+      ]
+
+      citations = Classifier.citations(sources)
+
+      result =
+        Classifier.alias_authorships(
+          ["Neuroterus papillosus", "Neuroterus perminimus"],
+          citations
+        )
+
+      assert result["Neuroterus papillosus"] == "Beutenmueller, 1910"
+      assert result["Neuroterus perminimus"] == "Bassett, 1900"
+
+      # ...while the species itself takes the homotypic line.
+      assert Classifier.derive("Neuroterus niger", sources).authorship == "Gillette, 1888"
+    end
+
+    test "a homotypic synonym resolves to the shared basionym" do
+      sources = [
+        %{
+          id: 8,
+          author: "Revision",
+          pubyear: "2020",
+          description: "Cynips ignota Bassett, 1881: 106."
+        }
+      ]
+
+      result =
+        Classifier.alias_authorships(["Andricus ignotus"], Classifier.citations(sources))
+
+      assert result["Andricus ignotus"] == "(Bassett, 1881)"
+    end
+
+    test "names the citations say nothing about are omitted" do
+      sources = [
+        %{id: 9, author: "X", pubyear: "2020", description: "Cynips ignota Bassett, 1881: 106."}
+      ]
+
+      result = Classifier.alias_authorships(["Quercus alba"], Classifier.citations(sources))
+
+      assert result == %{}
     end
   end
 end

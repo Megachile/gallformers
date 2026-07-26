@@ -621,8 +621,40 @@ defmodule Gallformers.Authorship.Classifier do
 
   defp strip_trailing_punctuation(word), do: String.replace(word, ~r/[^\p{L}-]+$/u, "")
 
+  # Taking the last token is right for almost every author in the data —
+  # "Alfred Kinsey" gives Kinsey, "Nieves-Aldrey" and "Pujade-Villar" survive
+  # because they are hyphenated. It is wrong for a surname written as two
+  # words, which would silently publish "Sacken, 1862" for a name Osten Sacken
+  # established.
+  #
+  # There is exactly one such author in the establishing sources, under four
+  # spellings (Baron Osten Sacken, Baron Osten-Sacken, Baron Von Osten Sacken,
+  # and as second author to Loew). A lookup is honest about being a lookup; a
+  # rule that guessed where a surname begins would misread the ordinary names
+  # that make up the rest of the corpus. Add to the list as they appear — or
+  # supersede it with a citation-name field on `source` if the list ever grows
+  # past a handful.
+  @compound_surnames ["Osten Sacken"]
+
   defp surname(person) do
-    person |> String.trim() |> String.split(~r/\s+/, trim: true) |> List.last()
+    trimmed = String.trim(person)
+
+    compound_surname(trimmed) ||
+      trimmed |> String.split(~r/\s+/, trim: true) |> List.last()
+  end
+
+  defp compound_surname(person) do
+    normalised = normalise_surname(person)
+
+    Enum.find(@compound_surnames, fn candidate ->
+      String.ends_with?(normalised, normalise_surname(candidate))
+    end)
+  end
+
+  # Hyphen and space are interchangeable in these spellings, so both forms of
+  # Osten Sacken resolve to the one canonical rendering.
+  defp normalise_surname(value) do
+    value |> String.downcase() |> String.replace(~r/[\s-]+/u, " ")
   end
 
   defp format_author_list([]), do: nil

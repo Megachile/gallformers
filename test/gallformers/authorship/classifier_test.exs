@@ -149,6 +149,30 @@ defmodule Gallformers.Authorship.ClassifierTest do
              ) == "Cuesta-Porta et al."
     end
 
+    test "keeps a two-word surname whole, in every spelling on record" do
+      # All four are the same man, and taking the last token publishes
+      # "Sacken" for names he established.
+      for spelling <- [
+            "Baron Osten Sacken",
+            "Baron Osten-Sacken",
+            "Baron Von Osten Sacken",
+            "CR Osten Sacken"
+          ] do
+        assert Classifier.authors(spelling) == "Osten Sacken"
+      end
+
+      assert Classifier.authors("Hermann Loew, Baron von Osten Sacken") ==
+               "Loew & Osten Sacken"
+    end
+
+    test "ordinary names are unaffected by the compound-surname lookup" do
+      assert Classifier.authors("Alfred Charles Kinsey") == "Kinsey"
+      assert Classifier.authors("Juli Pujade-Villar") == "Pujade-Villar"
+
+      assert Classifier.authors("Mary Isabel McCracken, Dorothy Barnes Egbert") ==
+               "McCracken & Egbert"
+    end
+
     test "pulls a year out of the free-text pubyear column" do
       assert Classifier.year("1881") == "1881"
       assert Classifier.year("c. 1881") == "1881"

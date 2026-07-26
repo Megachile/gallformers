@@ -161,11 +161,14 @@ defmodule Gallformers.Authorship.Classifier do
   end
 
   @doc """
-  Formats a `source.author` string into authorship style: surnames only, with
-  `&` for two authors and `et al.` for three or more.
+  Formats a `source.author` string into authorship style: surnames only, every
+  author enumerated, `&` before the last.
 
       iex> authors("HF Bassett")
       "Bassett"
+
+      iex> authors("George Melika, Juli Pujade-Villar, Graham Stone")
+      "Melika, Pujade-Villar & Stone"
   """
   @spec authors(String.t() | nil) :: String.t() | nil
   def authors(nil), do: nil
@@ -657,8 +660,17 @@ defmodule Gallformers.Authorship.Classifier do
     value |> String.downcase() |> String.replace(~r/[\s-]+/u, " ")
   end
 
+  # Authors of a name are enumerated in full. "et al." is a bibliographic
+  # convenience for referring to a paper, and a name's authorship is not a
+  # reference to a paper — it is the set of people who published the name, all
+  # of whom the describing work lists. Long is correct here.
   defp format_author_list([]), do: nil
   defp format_author_list([one]), do: one
   defp format_author_list([first, second]), do: "#{first} & #{second}"
-  defp format_author_list([first | _rest]), do: "#{first} et al."
+
+  defp format_author_list(authors) do
+    {leading, [last]} = Enum.split(authors, -1)
+
+    "#{Enum.join(leading, ", ")} & #{last}"
+  end
 end

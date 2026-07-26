@@ -143,10 +143,22 @@ defmodule Gallformers.Authorship.ClassifierTest do
     test "reduces a source author to surnames in authorship style" do
       assert Classifier.authors("HF Bassett") == "Bassett"
       assert Classifier.authors("HF Bassett & WH Ashmead") == "Bassett & Ashmead"
+    end
 
+    test "enumerates every author rather than abbreviating to et al." do
+      # "et al." refers to a paper. A name's authorship is the people who
+      # published it, all of whom the describing work names.
       assert Classifier.authors(
                "Victor Cuesta-Porta, George Melika, James Nicholls, Graham Stone, Juli Pujade-Villar"
-             ) == "Cuesta-Porta et al."
+             ) == "Cuesta-Porta, Melika, Nicholls, Stone & Pujade-Villar"
+
+      assert Classifier.authors("George Melika, Juli Pujade-Villar, Graham Stone") ==
+               "Melika, Pujade-Villar & Stone"
+    end
+
+    test "tolerates the doubled spacing found in transcribed author lists" do
+      assert Classifier.authors("J.  Pujade-Villar,  D.  Cibrián-Tovar,  A.  Equihua-Martínez") ==
+               "Pujade-Villar, Cibrián-Tovar & Equihua-Martínez"
     end
 
     test "keeps a two-word surname whole, in every spelling on record" do

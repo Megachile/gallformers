@@ -50,6 +50,7 @@ defmodule Gallformers.Authorship.Classifier do
   @genus_word ~r/^[A-Z][a-zA-Z-]+$/
   @epithet_word ~r/^[a-z][a-z-]+$/
   @qualifiers ~w(agamic sexgen)
+  @binomial_prefix ~r/^([A-Z][a-zà-ÿ-]+)\s+([a-zà-ÿ-]{3,})\s*/u
 
   @type relation :: :homotypic | :heterotypic | :indeterminate
 
@@ -394,6 +395,58 @@ defmodule Gallformers.Authorship.Classifier do
 
   defp establishing_name(description) do
     if original_description?(description), do: leading_name(description)
+  end
+
+  @doc """
+  The authority named on an entry's opening line, when it names one.
+
+  A paper describing several new species attributes them individually — a
+  revision by five people may publish one as "Melika & Nicholls" and the next
+  as "Melika, Nicholls & Stone" — so the paper's author list is a fallback
+  rather than the answer. 372 of 937 establishing lines in the dev data name
+  an authority, and 304 of those differ from their paper.
+
+  Returns `nil` unless what sits between the name and the nomenclatural act
+  reads as a list of surnames. The same position also holds subgenera and
+  second names — `Andricus (Callirhytis) ruginosus`, `Cecidomyia? semenivora`
+  — so anything containing a lowercase word or a parenthesis is rejected. This
+  is for prefilling a field a person confirms, never for writing unattended.
+  """
+  @spec establishing_authority(String.t() | nil) :: String.t() | nil
+  def establishing_authority(nil), do: nil
+
+  def establishing_authority(description) do
+    if original_description?(description) do
+      description |> first_line() |> strip_exclusions() |> authority_between()
+    end
+  end
+
+  defp authority_between(line) do
+    line
+    |> then(&Regex.replace(@binomial_prefix, &1, ""))
+    |> String.split(@origin_marker)
+    |> List.first()
+    |> to_string()
+    |> String.replace(~r/^[,;:\s]+/u, "")
+    |> String.trim()
+    |> String.trim_trailing(",")
+    |> String.trim()
+    |> surnames_only()
+  end
+
+  defp surnames_only(""), do: nil
+
+  defp surnames_only(text) do
+    tokens = String.split(text, ~r/\s+/u, trim: true)
+
+    if Enum.all?(tokens, &surname_token?/1), do: text
+  end
+
+  # Surnames and the conjunctions between them. A lowercase word is an epithet
+  # and a parenthesis is a subgenus; either means this is still the name.
+  defp surname_token?(token) do
+    token in ["&", "and", "y"] or
+      (Regex.match?(~r/^[A-ZÀ-Þ][\p{L}'-]*,?$/u, token) and not String.contains?(token, "("))
   end
 
   @doc """

@@ -387,6 +387,17 @@ defmodule Gallformers.Authorship do
   end
 
   @doc """
+  The authority the entry's opening line names, if it names one.
+
+  Only a suggestion, and only where the paper attributed this species to
+  someone other than its full author list. Left blank the attribution falls
+  back to the source record, which is right for most entries.
+  """
+  @spec suggested_establishing_author(String.t() | nil) :: String.t() | nil
+  def suggested_establishing_author(description),
+    do: Classifier.establishing_authority(description)
+
+  @doc """
   Records or updates a name mention. Re-running the backfill updates in place
   rather than accumulating duplicates.
   """
@@ -413,14 +424,19 @@ defmodule Gallformers.Authorship do
   defp relevant?(%{name: mention_name}, name),
     do: Classifier.classify(name, mention_name) == :homotypic
 
-  # An `establishes` row takes its attribution from the publication it sits
-  # on; a `cites_original` row carries its own, because the publication it
-  # names is usually not a source record.
+  # An `establishes` row falls back to the publication it sits on, but may
+  # carry its own attribution instead. Not every species in a paper shares the
+  # paper's author list: a revision by five people routinely describes one
+  # species as "Melika & Nicholls" and the next as "Melika, Nicholls & Stone",
+  # and the paper states which. Where a mention records that, it wins.
+  #
+  # A `cites_original` row always carries its own, because the publication it
+  # names is usually not a source record at all.
   defp attribute(%{role: "establishes"} = mention) do
     %{
       name: mention.name,
-      author: Classifier.authors(mention.source_author),
-      year: parse_year(mention.source_pubyear),
+      author: mention.author || Classifier.authors(mention.source_author),
+      year: mention.year || parse_year(mention.source_pubyear),
       parenthesised: mention.parenthesised,
       role: "establishes",
       source_id: mention.source_id,

@@ -93,6 +93,79 @@ defmodule Gallformers.AuthorshipTest do
     end
   end
 
+  describe "authorship/2 — attribution differing from the paper" do
+    test "an establishing mention may name its own authority" do
+      # A revision by five people describing several species attributes them
+      # individually. Melika & Nicholls published this one; the paper's full
+      # author list did not.
+      species = species!("Andricus foo")
+
+      revision =
+        source!(%{
+          title: "Revision of the oak gallwasps",
+          author: "George Melika, James Nicholls, Graham Stone, Warren Abrahamson",
+          pubyear: "2010"
+        })
+
+      entry = entry!(species, revision, "Andricus foo Melika & Nicholls, n. sp.")
+
+      mention!(entry, %{
+        name: "Andricus foo",
+        role: "establishes",
+        author: "Melika & Nicholls"
+      })
+
+      result = Authorship.authorship_for_species(species.id, "Andricus foo")
+
+      assert result.authorship == "Melika & Nicholls, 2010"
+    end
+
+    test "falls back to the paper's authors when the mention names none" do
+      species = species!("Andricus bar")
+
+      revision =
+        source!(%{
+          title: "Revision",
+          author: "George Melika, James Nicholls, Graham Stone",
+          pubyear: "2010"
+        })
+
+      entry = entry!(species, revision, "Andricus bar, n. sp.")
+      mention!(entry, %{name: "Andricus bar", role: "establishes"})
+
+      result = Authorship.authorship_for_species(species.id, "Andricus bar")
+
+      assert result.authorship == "Melika, Nicholls & Stone, 2010"
+    end
+  end
+
+  describe "suggested_establishing_author/1" do
+    test "reads an authority named on the opening line" do
+      assert Authorship.suggested_establishing_author(
+               "Andricus foo Melika & Nicholls, n. sp.\n\nGall."
+             ) == "Melika & Nicholls"
+
+      assert Authorship.suggested_establishing_author(
+               "Acalitus capparidis Flechtmann, sp.  nov.\n\nx"
+             ) == "Flechtmann"
+    end
+
+    test "does not mistake the rest of a name for an authority" do
+      # The same position holds subgenera and second names.
+      assert Authorship.suggested_establishing_author(
+               "Andricus (Callirhytis) ruginosus, n. sp.\n\nx"
+             ) == nil
+
+      assert Authorship.suggested_establishing_author("Cecidomyia? semenivora, n. sp.\n\nx") ==
+               nil
+    end
+
+    test "returns nothing when the line names only the species" do
+      assert Authorship.suggested_establishing_author("Cynips ignota, n. sp.\n\nx") == nil
+      assert Authorship.suggested_establishing_author("Andricus ignotus\n\nx") == nil
+    end
+  end
+
   describe "authorship/2 — cited originals" do
     test "reads a citation whose publication is not a source record" do
       species = species!("Acalitus blastofagi")

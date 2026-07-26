@@ -30,6 +30,8 @@ defmodule GallformersWeb.Admin.SpeciesSourceLive.QuickFind do
       |> assign(:form, nil)
       |> assign(:establishes_name, "")
       |> assign(:establishes_suggestion, nil)
+      |> assign(:establishes_author, "")
+      |> assign(:establishes_author_suggestion, nil)
 
     {:ok, socket}
   end
@@ -190,7 +192,12 @@ defmodule GallformersWeb.Admin.SpeciesSourceLive.QuickFind do
 
     case Sources.update_species_source(existing, params) do
       {:ok, _} ->
-        save_establishes(socket.assigns.editing_id, Map.get(all_params, "establishes_name", ""))
+        save_establishes(
+          socket.assigns.editing_id,
+          Map.get(all_params, "establishes_name", ""),
+          Map.get(all_params, "establishes_author", "")
+        )
+
         results = refetch_results(socket)
 
         # Rebuild the form with fresh data so the user can keep editing
@@ -254,11 +261,16 @@ defmodule GallformersWeb.Admin.SpeciesSourceLive.QuickFind do
     socket
     |> assign(:establishes_name, (recorded && recorded.name) || "")
     |> assign(:establishes_suggestion, suggestion)
+    |> assign(:establishes_author, (recorded && recorded.author) || "")
+    |> assign(
+      :establishes_author_suggestion,
+      Authorship.suggested_establishing_author(description)
+    )
   end
 
   # An empty box means "this entry establishes nothing", so clearing it has to
   # remove the record rather than leave a stale one behind.
-  defp save_establishes(mapping_id, name) do
+  defp save_establishes(mapping_id, name, author) do
     recorded =
       mapping_id
       |> Authorship.mentions_for_entry()
@@ -275,8 +287,19 @@ defmodule GallformersWeb.Admin.SpeciesSourceLive.QuickFind do
         Authorship.upsert_mention(%{
           species_source_id: mapping_id,
           name: trimmed,
-          role: "establishes"
+          role: "establishes",
+          author: blank_to_nil(author)
         })
+    end
+  end
+
+  # Blank means "attributed to whoever wrote the paper", which is the common
+  # case and is read from the source record. A value here is for the species a
+  # paper credits to only some of its authors.
+  defp blank_to_nil(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
     end
   end
 
@@ -442,11 +465,30 @@ defmodule GallformersWeb.Admin.SpeciesSourceLive.QuickFind do
                               }
                               class="gf-input text-sm"
                             />
+                            <label
+                              class="gf-label mt-2"
+                              for={"establishes-author-#{result.id}"}
+                            >
+                              Attributed to:
+                            </label>
+                            <input
+                              type="text"
+                              id={"establishes-author-#{result.id}"}
+                              name="establishes_author"
+                              value={@establishes_author}
+                              placeholder={
+                                if @establishes_author_suggestion,
+                                  do: "suggested: #{@establishes_author_suggestion}",
+                                  else: "leave empty to use the source's authors"
+                              }
+                              class="gf-input text-sm"
+                            />
                             <p class="mt-1 text-xs text-gray-600">
-                              Fill in only if this entry <em>is</em>
-                              the original description — the name it established, as published.
-                              Author and year come from the source record, so a name recorded here
-                              gives every synonym of it an authorship.
+                              Fill in the name only if this entry <em>is</em>
+                              the original description. Leave <em>attributed to</em>
+                              empty and the authorship comes from the source record; fill it in when
+                              the paper credits this species to only some of its authors, which
+                              revisions describing several species routinely do.
                             </p>
                           </div>
 

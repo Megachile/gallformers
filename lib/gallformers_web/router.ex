@@ -115,6 +115,8 @@ defmodule GallformersWeb.Router do
     live "/species-sources/add", Admin.SpeciesSourceLive.AddFromSource, :add
     live "/species-sources/find", Admin.SpeciesSourceLive.QuickFind, :find
 
+    live "/authorship/issues", Admin.AuthorshipIssuesLive, :index
+
     # Glossary admin
     live "/glossary", Admin.GlossaryLive.Index, :index
     live "/glossary/new", Admin.GlossaryLive.Form, :new

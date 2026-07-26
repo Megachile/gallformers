@@ -85,6 +85,12 @@ defmodule GallformersWeb.Admin.DashboardLive do
             icon="ph-magnifying-glass"
             accent="blue"
           />
+          <.action_card
+            label="Authorship Issues"
+            href="/admin/authorship/issues"
+            icon="ph-warning-circle"
+            accent="blue"
+          />
         </div>
       </div>
 

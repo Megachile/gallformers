@@ -179,6 +179,200 @@ defmodule Gallformers.Authorship do
   end
 
   @doc """
+  Records that contradict each other or are malformed.
+
+  Deliberately not a backlog. Names with no source establishing them number in
+  the thousands and are the database being incomplete, which is a different
+  and much larger job. Everything here is a specific defect in what has
+  already been recorded, and each one is fixed by editing an entry or a source
+  rather than by acquiring anything new.
+
+    * `:conflicting_attribution` — one name, two readings that disagree on the
+      author or the year. Usually a transcribed year: Bassett, 1990 for a name
+      published in 1900.
+    * `:ambiguous_basionym` — two entries each claim to establish a different
+      name for the same species. Both cannot be the original description.
+    * `:unrelated_establishing_name` — an entry records establishing a name
+      that is not this species' at all, which is a mis-entry.
+    * `:contradicted_direct_entry` — an authorship typed on the species that
+      the sources now disagree with. The typed value is already superseded on
+      display; this surfaces it so it can be removed or the source corrected.
+  """
+  @spec issues() :: [map()]
+  def issues do
+    from(m in NameMention,
+      join: ss in assoc(m, :species_source),
+      join: so in assoc(ss, :source),
+      join: sp in Species,
+      on: sp.id == ss.species_id,
+      select: %{
+        species_id: sp.id,
+        species_name: sp.name,
+        species_authorship: sp.authorship,
+        name: m.name,
+        role: m.role,
+        author: m.author,
+        year: m.year,
+        parenthesised: m.parenthesised,
+        species_source_id: ss.id,
+        source_id: so.id,
+        source_title: so.title,
+        source_author: so.author,
+        source_pubyear: so.pubyear
+      }
+    )
+    |> Repo.all()
+    |> Enum.group_by(& &1.species_id)
+    |> Enum.flat_map(fn {id, mentions} -> issues_for_species(mentions, known_names(id)) end)
+    |> Enum.sort_by(&{&1.type, &1.species_name})
+  end
+
+  defp known_names(species_id) do
+    from(a in "alias",
+      join: link in "alias_species",
+      on: link.alias_id == a.id,
+      where: link.species_id == ^species_id and a.type == "scientific",
+      select: a.name
+    )
+    |> Repo.all()
+    |> MapSet.new()
+  end
+
+  defp issues_for_species([first | _] = mentions, known) do
+    species = %{id: first.species_id, name: first.species_name, typed: first.species_authorship}
+    attributed = mentions |> Enum.reject(&(&1.role == "uses")) |> Enum.map(&attribute/1)
+
+    conflicting(species, attributed) ++
+      ambiguous(species, mentions) ++
+      unrelated(species, mentions, known) ++
+      contradicted(species, attributed)
+  end
+
+  # One name, two readings that genuinely disagree.
+  #
+  # Differing years are always worth a look. Differing author strings are not:
+  # the same attribution is routinely written "Pujade-Villar, 2018" in one
+  # source and "Pujade-Villar et al., 2018" in another, and neither is wrong.
+  # Only a reading that shares no surname at all — Cosens versus Rohwer, both
+  # 1915 — is a real contradiction.
+  defp conflicting(species, attributed) do
+    attributed
+    |> Enum.filter(&(not is_nil(&1.year)))
+    |> Enum.group_by(& &1.name)
+    |> Enum.filter(fn {_name, group} -> genuinely_conflicting?(group) end)
+    |> Enum.map(fn {name, group} -> issue(species, :conflicting_attribution, name, group) end)
+  end
+
+  defp genuinely_conflicting?(group) do
+    years = group |> Enum.map(& &1.year) |> Enum.uniq()
+
+    length(years) > 1 or disjoint_authors?(group)
+  end
+
+  defp disjoint_authors?(group) do
+    group
+    |> Enum.map(&surname_set/1)
+    |> Enum.reject(&Enum.empty?/1)
+    |> case do
+      [] -> false
+      [_only] -> false
+      sets -> Enum.reduce(sets, &MapSet.intersection/2) |> Enum.empty?()
+    end
+  end
+
+  defp surname_set(%{author: nil}), do: MapSet.new()
+
+  defp surname_set(%{author: author}) do
+    author
+    |> String.split(~r/\s*(?:,|&|\bet al\.?|\by\b|\band\b)\s*/u, trim: true)
+    |> Enum.map(&(&1 |> String.trim() |> Classifier.authorship_key()))
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> MapSet.new()
+  end
+
+  # Two entries each claiming to be the original description of a different name.
+  defp ambiguous(species, mentions) do
+    mentions
+    |> Enum.filter(&(&1.role == "establishes" and homotypic?(species.name, &1.name)))
+    |> Enum.uniq_by(& &1.name)
+    |> case do
+      [_one] -> []
+      [] -> []
+      many -> [issue(species, :ambiguous_basionym, species.name, Enum.map(many, &attribute/1))]
+    end
+  end
+
+  # An establishing record naming something this species has never been called.
+  #
+  # A name that is heterotypic but on record as a synonym is not an error — it
+  # is a junior name described from this species, which is the ordinary way a
+  # synonym acquires its own authorship. Only a name belonging to neither the
+  # species nor its synonyms is a mis-entry, and those are usually a host plant
+  # or a fragment of prose the detector mistook for a binomial.
+  defp unrelated(species, mentions, known) do
+    mentions
+    |> Enum.filter(fn mention ->
+      mention.role == "establishes" and
+        not homotypic?(species.name, mention.name) and
+        not MapSet.member?(known, mention.name)
+    end)
+    |> Enum.map(&issue(species, :unrelated_establishing_name, &1.name, [attribute(&1)]))
+  end
+
+  defp contradicted(%{typed: typed} = species, attributed) when is_binary(typed) do
+    if blank?(typed) do
+      []
+    else
+      attributed
+      |> Enum.filter(&relevant?(&1, species.name))
+      |> best(species.name)
+      |> disagrees_with_typed(species, typed)
+    end
+  end
+
+  defp contradicted(_species, _attributed), do: []
+
+  defp disagrees_with_typed(nil, _species, _typed), do: []
+
+  defp disagrees_with_typed(winner, species, typed) do
+    resolved = render(species.name, winner)
+
+    if Classifier.authorship_key(resolved.authorship) == Classifier.authorship_key(typed) do
+      []
+    else
+      [issue(species, :contradicted_direct_entry, species.name, [winner])]
+    end
+  end
+
+  defp homotypic?(species_name, name), do: Classifier.classify(species_name, name) == :homotypic
+
+  defp issue(species, type, name, readings) do
+    %{
+      type: type,
+      species_id: species.id,
+      species_name: species.name,
+      name: name,
+      typed: species.typed,
+      readings:
+        Enum.map(readings, fn reading ->
+          %{
+            name: reading.name,
+            authorship:
+              Classifier.format_authorship(
+                reading.author,
+                to_string(reading.year),
+                reading.parenthesised
+              ),
+            role: reading.role,
+            source_id: reading.source_id,
+            source_title: reading.source_title,
+            species_source_id: reading.species_source_id
+          }
+        end)
+    }
+  end
+
+  @doc """
   The name an entry looks like it establishes, for prefilling the admin form.
 
   Returns `nil` unless the entry announces an original description and its

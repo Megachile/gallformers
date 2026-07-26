@@ -236,6 +236,139 @@ defmodule Gallformers.AuthorshipTest do
     end
   end
 
+  describe "issues/0" do
+    test "flags two readings that disagree on the year" do
+      species = species!("Neuroterus umbilicatus")
+      bassett = source!(%{title: "Bassett", author: "HF Bassett", pubyear: "1900"})
+      later = source!(%{title: "Later", author: "Someone", pubyear: "2020"})
+
+      described = entry!(species, bassett, "x")
+      mention!(described, %{name: "Neuroterus umbilicatus", role: "establishes"})
+
+      cited = entry!(species, later, "x")
+
+      mention!(cited, %{
+        name: "Neuroterus umbilicatus",
+        role: "cites_original",
+        author: "Bassett",
+        year: 1990
+      })
+
+      assert [issue] = Authorship.issues()
+      assert issue.type == :conflicting_attribution
+      assert issue.species_name == "Neuroterus umbilicatus"
+      assert length(issue.readings) == 2
+    end
+
+    test "one attribution written two ways is not a disagreement" do
+      # "Pujade-Villar, 2018" and "Pujade-Villar et al., 2018" are the same
+      # attribution; flagging them would bury the real conflicts.
+      species = species!("Disholcaspis crystalae")
+      one = source!(%{title: "A", author: "Juli Pujade-Villar", pubyear: "2018"})
+      two = source!(%{title: "B", author: "Someone", pubyear: "2020"})
+
+      described = entry!(species, one, "x")
+      mention!(described, %{name: "Disholcaspis crystalae", role: "establishes"})
+
+      cited = entry!(species, two, "x")
+
+      mention!(cited, %{
+        name: "Disholcaspis crystalae",
+        role: "cites_original",
+        author: "Pujade-Villar et al.",
+        year: 2018
+      })
+
+      assert Authorship.issues() == []
+    end
+
+    test "flags two entries each claiming a different original description" do
+      species = species!("Phylloteras poculum")
+      osten = source!(%{title: "Osten Sacken", author: "Baron Osten Sacken", pubyear: "1862"})
+      weld = source!(%{title: "Weld", author: "LH Weld", pubyear: "1926"})
+
+      a = entry!(species, osten, "x")
+      mention!(a, %{name: "Cecidomyia poculum", role: "establishes"})
+
+      b = entry!(species, weld, "x")
+      mention!(b, %{name: "Xystoteras poculum", role: "establishes"})
+
+      assert [issue] = Authorship.issues()
+      assert issue.type == :ambiguous_basionym
+    end
+
+    test "flags an establishing name belonging to neither the species nor a synonym" do
+      species = species!("Neuroterus stonei")
+      source = source!(%{title: "S", author: "A", pubyear: "1900"})
+      entry = entry!(species, source, "x")
+
+      # The detector reading a host plant as a binomial.
+      mention!(entry, %{name: "Quercus arizonica", role: "establishes"})
+
+      assert [issue] = Authorship.issues()
+      assert issue.type == :unrelated_establishing_name
+      assert issue.name == "Quercus arizonica"
+    end
+
+    test "a heterotypic synonym described from this species is not an issue" do
+      species = species!("Neuroterus niger")
+      gillette = source!(%{title: "G", author: "CP Gillette", pubyear: "1888"})
+      beuten = source!(%{title: "B", author: "William Beutenmueller", pubyear: "1910"})
+
+      own = entry!(species, gillette, "x")
+      mention!(own, %{name: "Neuroterus niger", role: "establishes"})
+
+      junior = entry!(species, beuten, "x")
+      mention!(junior, %{name: "Neuroterus papillosus", role: "establishes"})
+
+      alias_record =
+        Repo.insert!(%Gallformers.Species.Alias{
+          name: "Neuroterus papillosus",
+          type: "scientific"
+        })
+
+      Repo.insert_all("alias_species", [
+        [alias_id: alias_record.id, species_id: species.id]
+      ])
+
+      assert Authorship.issues() == []
+    end
+
+    test "flags a typed authorship the sources contradict" do
+      species = species!("Druon ignotum")
+      Repo.update!(Ecto.Changeset.change(species, authorship: "(Someone, 1950)"))
+
+      bassett = source!(%{title: "New Cynipidae", author: "HF Bassett", pubyear: "1881"})
+      entry = entry!(species, bassett, "x")
+      mention!(entry, %{name: "Cynips ignota", role: "establishes"})
+
+      assert [issue] = Authorship.issues()
+      assert issue.type == :contradicted_direct_entry
+      assert issue.typed == "(Someone, 1950)"
+    end
+
+    test "a typed authorship the sources agree with is not flagged" do
+      species = species!("Druon ignotum")
+      Repo.update!(Ecto.Changeset.change(species, authorship: "(Bassett, 1881)"))
+
+      bassett = source!(%{title: "New Cynipidae", author: "HF Bassett", pubyear: "1881"})
+      entry = entry!(species, bassett, "x")
+      mention!(entry, %{name: "Cynips ignota", role: "establishes"})
+
+      assert Authorship.issues() == []
+    end
+
+    test "a name merely used contributes no issues" do
+      species = species!("Aceria blastofagi")
+      catalog = source!(%{title: "Catalog", author: "James Amrine", pubyear: "2019"})
+      entry = entry!(species, catalog, "x")
+
+      mention!(entry, %{name: "Aceria blastofagi", role: "uses"})
+
+      assert Authorship.issues() == []
+    end
+  end
+
   describe "upsert_mention/1" do
     test "re-recording the same name updates rather than duplicating" do
       species = species!("Druon ignotum")

@@ -2,7 +2,7 @@
 status: raw
 effort: 1-2 days
 created: 2026-02-14
-updated: 2026-02-25
+updated: 2026-09-07
 epic: cynipid
 docs: ['']
 relates: [85c0]
@@ -168,3 +168,42 @@ The patterns established here — iNat data integration, phenology modeling, key
 - **Abundance methodology**: Raw observation counts are a noisy abundance proxy. What normalization (if any) is needed to be useful rather than misleading?
 - **Anatomy data collection**: How will adult anatomy traits be gathered initially? Manual entry from literature, extraction from iNat photos, expert contribution, or some combination?
 - **Geographic scope**: The phenology tool currently has best coverage in North America. How does this interact with the Western Hemisphere expansion plans?
+
+## Release implementation (2026-09-07)
+
+The `phenology-release` branch is rebuilt on current upstream main, without the
+experimental branch history. It contains the public explorer, a lazy per-gall
+panel, and one shared context/model/result-component path. The original local
+prototype is preserved separately.
+
+- Fresh-gall onset uses developing q05–q10. Emergence pools maturing and
+  Free-living. Viable collection uses explicit viability regardless of phase.
+  Event toggles and visible observation stages are independent.
+- Selected species pool within generation. One shared quarter-degree 25–55°N
+  thermal-landmark reference supplies both lines and date outputs. Legacy seasind
+  remains only as an optional selection lens, not a second prediction model.
+- Gall pages do no phenology query until expansion, then reuse loaded evidence.
+  Full-chart links preserve exact GF identity and latitude. Both views use the
+  same date renderer, evidence counts and sparse/extrapolated warnings.
+- Ordinary queries use Ecto; recursive taxonomy/place CTEs retain explicit SQL.
+  Operational failures propagate instead of masquerading as an empty dataset.
+- One reversible migration creates empty evidence/blacklist tables. It contains
+  no imports, relabeling or source-metadata mutation. R/Python curation, literature
+  intake, perimature review heuristics, regional climate experiments, local server
+  settings and observation snapshots are outside this PR.
+- The prescreen also fixed cold-start event parsing, unsafe external table-link
+  protocols, a shared toggle CSS cascade conflict, and mobile chart sizing.
+
+Verification: `mix precommit` (2,196 tests, zero failures; normal excluded tags),
+Dialyzer (zero errors), JavaScript tests (180 passing), assets build, fresh-table
+migration and rollback, and desktop/mobile browser checks. Both views return
+identical dates; visibility and event toggles operate independently; table
+sorting works. Fifty-four event/latitude comparisons across D. quercuspalustris,
+Eurosta solidaginis and four Disholcaspis species match the prototype's dates and
+evidence counts. This is refactor parity, not additional ecological validation.
+
+Release still requires maintainer acceptance and a separately reviewed, explicit
+curated data batch with an import audit. A complete GF–iNat crosswalk and scheduled
+imports are not prerequisites; unresolved identities must stay out of the batch.
+The latitude-only reference is not locally validated weather, altitude or host
+phenology. Keep regional refinement and broader product ideas separate.

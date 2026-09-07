@@ -163,7 +163,7 @@ function truncationNotice(shown, total, noun) {
 function obsRow(o) {
   return (
     '<tr>' +
-    cell(o.species_name) +
+    `<td><a href="/gall/${encodeURIComponent(o.species_id)}">${escapeHtml(o.species_name)}</a></td>` +
     cell(orDash(o.phenophase)) +
     cell(orDash(o.lifestage)) +
     cell(orDash(o.viability)) +

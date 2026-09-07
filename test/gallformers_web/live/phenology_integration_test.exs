@@ -62,6 +62,9 @@ defmodule GallformersWeb.PhenologyIntegrationTest do
     assert windows(explorer) == compact_windows
     refute render(explorer) =~ other.name
 
+    render_patch(explorer, ~p"/phenology?species_id=#{sp.id}&display=table")
+    assert has_element?(explorer, "#phenology-obs-table a[href='/gall/#{sp.id}']", sp.name)
+
     compact |> element("#toggle-phenology") |> render_click()
     refute has_element?(compact, "#gall-phenology-content")
     compact |> element("#toggle-phenology") |> render_click()

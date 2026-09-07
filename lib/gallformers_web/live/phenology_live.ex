@@ -1111,7 +1111,9 @@ defmodule GallformersWeb.PhenologyLive do
                     rows={@observations}
                     variant="compact"
                   >
-                    <:col :let={o} label="Species">{o.species_name}</:col>
+                    <:col :let={o} label="Species">
+                      <.link href={~p"/gall/#{o.species_id}"}>{o.species_name}</.link>
+                    </:col>
                     <:col :let={o} label="Phenophase">{o.phenophase || "—"}</:col>
                     <:col :let={o} label="Lifestage">{o.lifestage || "—"}</:col>
                     <:col :let={o} label="Viability">{o.viability || "—"}</:col>

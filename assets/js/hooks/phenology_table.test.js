@@ -37,6 +37,22 @@ test('rendering escapes external text and rejects executable page and source lin
     Table.render.call({el})
     expect(el.querySelector('img')).toBeNull()
     expect(el.textContent).toContain('<img src=x onerror=alert(1)>')
-    expect(el.querySelectorAll('a')).toHaveLength(0)
+    expect([...el.querySelectorAll('a')].map(a => a.getAttribute('href'))).toEqual(['/gall/1'])
+  } finally { chart.remove() }
+})
+
+test.each(['table', 'species'])('gall names link to their GF page in %s mode', mode => {
+  const chart = document.createElement('div')
+  chart.id = 'phenology-chart'
+  chart.dataset.points = JSON.stringify([{species_id: 817,
+    species_name: 'Dryocosmus quercuspalustris (sexgen)'}])
+  document.body.append(chart)
+  const el = document.createElement('div')
+  el.dataset.mode = mode
+  try {
+    Table.render.call({el})
+    const link = el.querySelector('tbody tr td a')
+    expect(link.getAttribute('href')).toBe('/gall/817')
+    expect(link.textContent).toBe('Dryocosmus quercuspalustris (sexgen)')
   } finally { chart.remove() }
 })

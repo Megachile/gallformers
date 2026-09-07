@@ -333,9 +333,11 @@ export default {
           .attr('fill', 'none').attr('stroke', color).attr('stroke-width', 1.5)
           .attr('stroke-dasharray', '2,3')
       }
-      g.append('path').attr('d', toPath([...low, ...high.slice().reverse()]) + 'Z')
-        .attr('fill', color).attr('fill-opacity', 0.07)
-      for (const edge of [low, high]) {
+      if (p.event !== 'onset') {
+        g.append('path').attr('d', toPath([...low, ...high.slice().reverse()]) + 'Z')
+          .attr('fill', color).attr('fill-opacity', 0.07)
+      }
+      for (const edge of (p.event === 'onset' ? [low] : [low, high])) {
         g.append('path').attr('class', 'prediction-boundary').attr('d', toPath(edge))
           .attr('fill', 'none').attr('stroke', color).attr('stroke-width', 1.8)
           .attr('stroke-dasharray', p.event === 'rearing' ? '2,3' : ['emergence', 'adult_rearing', 'seasonal_observation'].includes(p.event) ? '6,4' : null)
@@ -350,7 +352,10 @@ export default {
           .attr('text-anchor', 'end').attr('fill', '#374151').style('font-size', '11px')
           .text(`${p.target_lat}° target`)
       }
-      for (const [doy, anchor] of [[p.low_doy, 'end'], [p.high_doy, 'start']]) {
+      const dates = p.event === 'onset'
+        ? [[p.low_doy, 'start']]
+        : [[p.low_doy, 'end'], [p.high_doy, 'start']]
+      for (const [doy, anchor] of dates) {
         labels.append('circle').attr('class', 'prediction-date-marker')
           .attr('data-doy', doy).attr('cx', x(doy)).attr('cy', y(p.target_lat))
           .attr('r', 4).attr('fill', 'white').attr('stroke', color).attr('stroke-width', 2)

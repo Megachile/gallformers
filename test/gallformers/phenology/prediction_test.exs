@@ -50,6 +50,49 @@ defmodule Gallformers.Phenology.PredictionTest do
     assert Enum.all?(p.contours, &(&1.low_doy <= &1.high_doy)) == true
   end
 
+  test "onset stays at the earliest developing record when late records dominate" do
+    early = Map.put(obs(1, 196), :page_url, "https://www.inaturalist.org/observations/126373795")
+    later = Enum.map(220..310, &obs(1, &1))
+
+    assert {:ok, [p]} = Prediction.predict([early | later], 30, [:onset])
+    assert p.low_doy == 196 and p.high_doy == 196
+    assert p.anchor.date == early.date
+    assert p.anchor.page_url == early.page_url
+    assert Enum.all?(p.contours, &(&1.low_doy == &1.high_doy)) == true
+    assert {:ok, [alone]} = Prediction.predict([early], 30, [:onset])
+    assert alone.contours == p.contours
+  end
+
+  test "onset ranks seasonally normalized dates, not raw calendar dates" do
+    southern = obs(1, 100)
+    northern = %{obs(1, 110) | latitude: 50.0}
+    assert Clock.coordinate(110, 50) < Clock.coordinate(100, 30)
+    assert {:ok, [p]} = Prediction.predict([southern, northern], 50, [:onset])
+    assert p.low_doy == 110
+    assert p.anchor.latitude == 50.0
+    assert p.anchor.date == northern.date
+  end
+
+  test "winter onset crosses January and exposes the same anchor in compact results" do
+    records = [obs(1, 355), obs(1, 5)]
+    assert {:ok, [p]} = Prediction.predict(records, 30, [:onset])
+    assert p.low_doy == 355 and p.high_doy == 355
+    assert p.anchor.date == ~D[2023-12-21]
+    assert {:ok, [compact]} = Prediction.predict(records, 30, [:onset], contours: false)
+    assert Map.delete(compact, :contours) == Map.delete(p, :contours)
+  end
+
+  test "onset anchor and date-locality deduplication are deterministic" do
+    a = Map.put(obs(1, 150), :page_url, "https://example.org/a")
+    b = %{a | page_url: "https://example.org/b"}
+    records = [a, b, obs(1, 200), %{a | latitude: nil}]
+    assert {:ok, [p]} = Prediction.predict(records, 30, [:onset])
+    assert {:ok, [q]} = Prediction.predict(Enum.reverse(records), 30, [:onset])
+    assert p == q
+    assert p.n == 2 and p.excluded_n == 1
+    assert p.anchor.page_url == a.page_url
+  end
+
   test "viable collections ignore stage but require explicit viability and keep generations separate" do
     a = Map.put(obs(1, 270, "dormant"), :viability, "viable")
     b = Map.put(obs(2, 280, "developing", "literature"), :viability, "viable")

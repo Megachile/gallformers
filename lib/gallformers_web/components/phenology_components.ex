@@ -6,6 +6,7 @@ defmodule GallformersWeb.PhenologyComponents do
   use Phoenix.Component
 
   import GallformersWeb.CoreComponents, only: [button: 1, input: 1]
+  import GallformersWeb.Helpers, only: [valid_url?: 1]
 
   attr :species_id, :integer, required: true
   attr :open, :boolean, default: false
@@ -88,22 +89,28 @@ defmodule GallformersWeb.PhenologyComponents do
         data-low-doy={p.low_doy}
         data-high-doy={p.high_doy}
       >
-        <span class="font-medium">{event_label(p.event)} · {generation_label(p.generation)}</span>: {doy_label(
-          p.low_doy
-        )}–{doy_label(p.high_doy)}
+        <span class="font-medium">{event_label(p.event)} · {generation_label(p.generation)}</span>:
+        <span :if={p.event == :onset}>around {doy_label(p.low_doy)}</span>
+        <span :if={p.event != :onset}>{doy_label(p.low_doy)}–{doy_label(p.high_doy)}</span>
         <span :if={p.event != :onset} class="text-gray-600">(middle 50%)</span>
-        <span :if={p.event == :onset} class="text-gray-600">
-          (5th–10th percentile onset estimate)
-        </span>
+        <.onset_anchor :if={p.event == :onset} anchor={p.anchor} />
         <span :if={Map.has_key?(p, :median_doy)} class="block text-gray-600">
           Middle 80% {doy_label(p.outer_low_doy)}–{doy_label(p.outer_high_doy)};
           median {doy_label(p.median_doy)}.
         </span>
         <span class="block text-xs text-gray-500">
-          {p.n} distinct date/locality records · {p.cells} geographic cells.
-          <span :if={p.sparse?}>Sparse evidence: not a reliable season boundary.</span>
-          <span :if={p.cells == 1}>One-cell geographic coverage.</span>
-          <span :if={p.extrapolated?}>Extrapolated beyond observed latitudes.</span>
+          {p.n} distinct date/location {if p.n == 1, do: "record", else: "records"}.
+          <span :if={p.sparse?}>Few records; season timing may be incomplete.</span>
+          <span :if={p.extrapolated?} class="block text-amber-800">
+            Extrapolation: {latitude_label(p.target_lat)} is outside the recorded range
+            ({latitude_range(p)}). Timing at this latitude is unverified.
+          </span>
+          <span
+            :if={!p.extrapolated? && p.observed_max_lat - p.observed_min_lat < 2}
+            class="block text-amber-800"
+          >
+            Limited latitude coverage ({latitude_range(p)}); timing elsewhere is uncertain.
+          </span>
           <span :if={p.excluded_n > 0}>
             {p.excluded_n} records lack supported dates or coordinates.
           </span>
@@ -111,6 +118,41 @@ defmodule GallformersWeb.PhenologyComponents do
       </li>
     </ul>
     """
+  end
+
+  attr :anchor, :map, required: true
+
+  defp onset_anchor(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :url,
+        Enum.find([assigns.anchor[:page_url], assigns.anchor[:source_url]], &valid_url?/1)
+      )
+
+    ~H"""
+    <span class="block text-xs text-gray-600">
+      Earliest recorded development, latitude-adjusted.
+      <.link
+        :if={@url}
+        href={@url}
+        target="_blank"
+        rel="noopener"
+        class="text-gf-maroon hover:underline"
+      >
+        Anchor record ↗
+      </.link>
+      {Calendar.strftime(@anchor.date, "%b %-d, %Y")} at {latitude_label(@anchor.latitude)}.
+    </span>
+    """
+  end
+
+  defp latitude_label(lat), do: "#{Float.round(lat / 1, 1)}°N"
+
+  defp latitude_range(p) do
+    if Float.round(p.observed_min_lat / 1, 1) == Float.round(p.observed_max_lat / 1, 1),
+      do: latitude_label(p.observed_min_lat),
+      else: "#{latitude_label(p.observed_min_lat)}–#{latitude_label(p.observed_max_lat)}"
   end
 
   defp explorer_path(id, lat) do

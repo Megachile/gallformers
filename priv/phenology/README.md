@@ -27,16 +27,33 @@ February 29 maps to February 28.
 
 The prediction layer pools selected species within generation. It collapses
 replicate species/date/0.1°-locality records and gives each occupied 1° geographic
-cell equal total weight. A weighted circular mean centers the year before
-weighted quantiles are calculated. Fresh-gall onset shows q05–q10, not the duration
-of developing galls. Emergence pools maturing and Free-living phases (not
+cell equal total weight. A weighted circular mean centers the year, keeping
+December–January seasons together. Fresh-gall onset uses the earliest developing
+record on that centered, latitude-normalized clock, not a percentile or the
+duration of developing galls. Its single line/date links to the anchor record
+where a source URL is available. Query-order-independent deduplication makes that
+anchor reproducible. This is an earliest **recorded** onset estimate: the input
+has no separate verified-fresh flag, and an early mislabel can move the line.
+It is not proof of the true first induction date or a confidence bound. Curate
+the upstream stage label to correct it; there are no per-species overrides.
+The circular centering still assumes a coherent season, not year-round or
+several independent developing phases.
+
+Emergence pools maturing and Free-living phases (not
 perimature or enclosed Adult annotations). Viable collections require explicit
 `viability == "viable"`, regardless of phenophase. Those events show q25–q75,
 with q10–q90 and the median as context. Display filters never restrict event input.
 
 These are descriptive fallback estimates, not confidence intervals, physiological
 thresholds or a mechanistic lifecycle model. Sparse evidence and extrapolation
-are labeled. A single site can supply event thresholds but does not validate the
+are labeled in plain language, without exposing geographic-cell counts. Fewer
+than five deduplicated records trigger a few-records warning. Outside the
+observed latitude range, the requested and recorded latitudes are displayed as
+an explicit extrapolation warning. Within that range, a span under two degrees
+triggers a limited-latitude-coverage warning. These are disclosure heuristics,
+not calibrated confidence scores; broad latitude coverage alone does not imply
+good sampling throughout the range or longitude coverage.
+A single site can supply event thresholds but does not validate the
 latitude-transfer relationship. Multimodal cohorts may not be well summarized by
 one window. The reference is eastern/central North American, not local weather;
 altitude, aspect, host and annual variation are not modeled. Do not use its

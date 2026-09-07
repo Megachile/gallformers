@@ -17,14 +17,16 @@ function render(prediction) {
 }
 
 describe('phenology prediction semantics', () => {
-  test('onset draws two leading edges without a median or duration outer band', () => {
+  test('onset draws one line and date, without any duration band or median', () => {
     const el = render({event: 'onset', generation: 'unknown', target_lat: 35,
-      low_doy: 150, high_doy: 160,
-      contours: [{lat: 30, low_doy: 140, high_doy: 150}, {lat: 40, low_doy: 160, high_doy: 170}]})
-    expect(el.querySelectorAll('.prediction-boundary')).toHaveLength(2)
+      low_doy: 150, high_doy: 150,
+      contours: [{lat: 30, low_doy: 140, high_doy: 140}, {lat: 40, low_doy: 160, high_doy: 160}]})
+    expect(el.querySelectorAll('.prediction-boundary')).toHaveLength(1)
     expect(el.querySelectorAll('.prediction-median')).toHaveLength(0)
     expect(el.querySelectorAll('.prediction-outer-band')).toHaveLength(0)
-    expect(el.querySelectorAll('.prediction-date-marker')).toHaveLength(2)
+    expect(el.querySelectorAll('.prediction-date-marker')).toHaveLength(1)
+    expect([...el.querySelectorAll('path')].some(p => p.getAttribute('d').endsWith('Z'))).toBe(false)
+    expect(el.querySelector('.prediction-boundary').getAttribute('stroke-dasharray')).toBeNull()
   })
 
   test('winter uses translated narrow polygons, not a December-to-January year-wide fill', () => {

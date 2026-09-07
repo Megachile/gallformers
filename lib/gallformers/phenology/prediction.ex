@@ -3,7 +3,8 @@ defmodule Gallformers.Phenology.Prediction do
   Shared seasonal-landmark predictions for the explorer and compact gall view.
 
   Selected species pool within generation. Developing observations estimate only
-  the leading edge (q05–q10). Free-living and maturing observations jointly
+  the leading edge, anchored to the earliest seasonally normalized record.
+  Free-living and maturing observations jointly
   describe emergence; perimature and enclosed Adult annotations do not. Viable
   collections require explicit viability, independently of phenophase.
 
@@ -95,24 +96,58 @@ defmodule Gallformers.Phenology.Prediction do
     {Clock.coordinate(day, o.latitude), 1 / counts[{floor(o.latitude), floor(o.longitude)}]}
   end
 
-  defp center_values(values) do
+  defp circular_center(values) do
     sin_sum = Enum.sum(Enum.map(values, fn {v, w} -> w * :math.sin(v * 2 * :math.pi() / 365) end))
     cos_sum = Enum.sum(Enum.map(values, fn {v, w} -> w * :math.cos(v * 2 * :math.pi() / 365) end))
-    center = :math.atan2(sin_sum, cos_sum) * 365 / (2 * :math.pi())
+    :math.atan2(sin_sum, cos_sum) * 365 / (2 * :math.pi())
+  end
+
+  defp center_values(values) do
+    center = circular_center(values)
 
     values
-    |> Enum.map(fn {v, w} -> {center + mod(v - center + 182.5, 365) - 182.5, w} end)
+    |> Enum.map(fn {v, w} -> {unwrap(v, center), w} end)
     |> Enum.sort()
+  end
+
+  defp unwrap(value, center), do: center + mod(value - center + 182.5, 365) - 182.5
+
+  # A stable representative keeps the anchor link independent of query order,
+  # including when several observations collapse to the same date/locality.
+  defp anchor_key(o) do
+    {o.date, o.latitude, o.longitude, Map.get(o, :page_url), Map.get(o, :source_url),
+     Map.get(o, :id)}
+  end
+
+  defp thresholds(obs, counts, true) do
+    values = Enum.map(obs, &weighted_coordinate(&1, counts))
+    center = circular_center(values)
+
+    {anchor, {phase, _}} =
+      obs
+      |> Enum.zip(values)
+      |> Enum.min_by(fn {o, {v, _}} -> {unwrap(v, center), anchor_key(o)} end)
+
+    provenance =
+      Map.take(anchor, [:id, :species_id, :species_name, :date, :latitude, :page_url, :source_url])
+
+    {[unwrap(phase, center)], provenance}
+  end
+
+  defp thresholds(obs, counts, false) do
+    sorted = obs |> Enum.map(&weighted_coordinate(&1, counts)) |> center_values()
+    {Enum.map([0.1, 0.25, 0.5, 0.75, 0.9], &quantile(sorted, &1)), nil}
   end
 
   defp fit_group(group, lat, event, contours?) do
     onset? = event == :onset
 
     valid = Enum.filter(group, &usable?/1)
+    candidates = if onset?, do: Enum.sort_by(valid, &anchor_key/1), else: valid
 
     obs =
       Enum.uniq_by(
-        valid,
+        candidates,
         &{&1.species_id, &1.date, round(&1.latitude * 10), round(&1.longitude * 10)}
       )
 
@@ -122,13 +157,11 @@ defmodule Gallformers.Phenology.Prediction do
       cell = fn o -> {floor(o.latitude), floor(o.longitude)} end
       counts = Enum.frequencies_by(obs, cell)
 
-      sorted = obs |> Enum.map(&weighted_coordinate(&1, counts)) |> center_values()
-
-      ps = if onset?, do: [0.05, 0.1], else: [0.1, 0.25, 0.5, 0.75, 0.9]
-      qs = Enum.map(ps, &quantile(sorted, &1))
+      {qs, anchor} = thresholds(obs, counts, onset?)
       rows = contour_rows(qs, onset?, contours?)
       p = row(qs, lat, onset?) |> Map.delete(:lat)
       p = Map.new(p, fn {k, d} -> {k, Integer.mod(round(d) - 1, 365) + 1} end)
+      p = if onset?, do: Map.put(p, :anchor, anchor), else: p
 
       names =
         valid
@@ -168,8 +201,8 @@ defmodule Gallformers.Phenology.Prediction do
   end
 
   defp row(qs, lat, true) do
-    [lo, hi] = Enum.map(qs, &Clock.inverse(&1, lat))
-    %{lat: lat, low_doy: lo, high_doy: hi}
+    [onset] = Enum.map(qs, &Clock.inverse(&1, lat))
+    %{lat: lat, low_doy: onset, high_doy: onset}
   end
 
   defp row(qs, lat, false) do

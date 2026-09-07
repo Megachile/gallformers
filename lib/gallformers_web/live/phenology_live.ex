@@ -929,7 +929,7 @@ defmodule GallformersWeb.PhenologyLive do
             </div>
             <div class="mt-3">
               <p :if={@predictions != []} class="text-xs text-gray-600 mb-2">
-                Solid boundaries = onset (5th–10th percentile);
+                Solid line = onset (earliest recorded development, latitude-adjusted);
                 dashed = emergence; dotted = viable collections. Emergence and collection bands
                 show the middle 50%, with a lighter middle 80%. These are not confidence intervals.
               </p>

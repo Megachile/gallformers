@@ -176,7 +176,10 @@ experimental branch history. It contains the public explorer, a lazy per-gall
 panel, and one shared context/model/result-component path. The original local
 prototype is preserved separately.
 
-- Fresh-gall onset uses developing q05–q10. Emergence pools maturing and
+- Fresh-gall onset uses the earliest seasonally normalized developing record,
+  with one line/date and a source-linked anchor, replacing the initial q05–q10
+  estimate. This relies on curated stage labels, not an automatic credibility
+  classification. Emergence pools maturing and
   Free-living. Viable collection uses explicit viability regardless of phase.
   Event toggles and visible observation stages are independent. Prediction lines
   and date markers on the plot persist when changing the panel below the chart.
@@ -187,7 +190,9 @@ prototype is preserved separately.
   remains only as an optional selection lens, not a second prediction model.
 - Gall pages do no phenology query until expansion, then reuse loaded evidence.
   Full-chart links preserve exact GF identity and latitude. Both views use the
-  same date renderer, evidence counts and sparse/extrapolated warnings.
+  same date renderer and plain-language warnings for few records, limited
+  latitude coverage and extrapolation beyond the actual recorded latitude range.
+  Geographic-cell counts remain model metadata, not public-facing terminology.
 - Ordinary queries use Ecto; recursive taxonomy/place CTEs retain explicit SQL.
   Operational failures propagate instead of masquerading as an empty dataset.
 - One reversible migration creates empty evidence/blacklist tables. It contains
@@ -203,7 +208,25 @@ migration and rollback, and desktop/mobile browser checks. Both views return
 identical dates; visibility and event toggles operate independently; table
 sorting works. Fifty-four event/latitude comparisons across D. quercuspalustris,
 Eurosta solidaginis and four Disholcaspis species match the prototype's dates and
-evidence counts. This is refactor parity, not additional ecological validation.
+evidence counts at the initial refactor checkpoint, before the intentional onset
+change above. This is refactor parity, not additional ecological validation.
+
+Per-gall scope audit: the preserved prototype also showed a source-count breakdown
+and independent stage IQRs (raw dates without a target latitude, seasind-adjusted
+with one). The shared three-event compact panel replaced those stage windows and
+omitted the source breakdown. The older data-layer proposal described an embedded
+scatter chart and filters; that was not present in the preserved summary
+component. These are real scope differences, not just a code-only refactor.
+Restoring descriptive context or an embedded chart needs a separate UI decision;
+do not silently restore the obsolete stage-duration model.
+
+Onset/coverage follow-up verification: `mix precommit` (2,205 tests, zero failures;
+84 standard exclusions), Dialyzer (zero errors), 182 JavaScript tests, assets build
+and desktop/mobile browser checks pass. All 36 emergence/rearing comparisons
+retain prototype dates/counts. D. cinerosa onset at 30°N now uses the July 15
+records rather than the August q05; the several same-date/location observations
+count as one replicate. Tests cover normalized rather than raw-date ranking,
+winter onset, later-record dominance, reproducible anchors and warning cutoffs.
 
 Release still requires maintainer acceptance and a separately reviewed, explicit
 curated data batch with an import audit. A complete GF–iNat crosswalk and scheduled

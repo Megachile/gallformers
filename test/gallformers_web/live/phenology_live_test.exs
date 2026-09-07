@@ -768,8 +768,8 @@ defmodule GallformersWeb.PhenologyLiveTest do
 
       assert html =~ "Predictions at"
       assert html =~ "Adult emergence"
-      assert html =~ "1 distinct date/locality records"
-      assert html =~ "Sparse evidence"
+      assert html =~ "1 distinct date/location record"
+      assert html =~ "Few records"
     end
 
     test "sparse evidence remains available with a warning", %{conn: conn} do
@@ -780,7 +780,7 @@ defmodule GallformersWeb.PhenologyLiveTest do
       end
 
       {:ok, _view, html} = live(conn, ~p"/phenology")
-      assert html =~ "Sparse evidence"
+      assert html =~ "Few records"
     end
 
     # Brush behavior — selecting points on the chart, narrowing the table

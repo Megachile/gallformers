@@ -336,8 +336,8 @@ defmodule GallformersWeb.PhenologyFilters do
   # Display mode
   # ----------------------------------------------------------------------
 
-  # `chart` is accepted for back-compat with older URLs but treated as
-  # `predictions` since the chart is no longer toggleable.
+  # This chooses the panel below the chart, not prediction lines on the plot.
+  # Legacy `chart` URLs select the predictions panel.
   defp parse_display_mode("table"), do: :data_table
   defp parse_display_mode("species"), do: :species_list
   defp parse_display_mode(_), do: :predictions

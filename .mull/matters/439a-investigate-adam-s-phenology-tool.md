@@ -178,7 +178,10 @@ prototype is preserved separately.
 
 - Fresh-gall onset uses developing q05–q10. Emergence pools maturing and
   Free-living. Viable collection uses explicit viability regardless of phase.
-  Event toggles and visible observation stages are independent.
+  Event toggles and visible observation stages are independent. Prediction lines
+  and date markers on the plot persist when changing the panel below the chart.
+  That selector still chooses Predictions (text), Data table, or Species list;
+  it never controls plot visibility.
 - Selected species pool within generation. One shared quarter-degree 25–55°N
   thermal-landmark reference supplies both lines and date outputs. Legacy seasind
   remains only as an optional selection lens, not a second prediction model.

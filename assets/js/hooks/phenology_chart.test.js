@@ -5,7 +5,6 @@ import Chart from './phenology_chart'
 
 function render(prediction) {
   const el = document.createElement('div')
-  el.dataset.showPredictions = 'true'
   el.dataset.predictions = JSON.stringify([prediction])
   const svg = select(el).append('svg')
   const hook = {

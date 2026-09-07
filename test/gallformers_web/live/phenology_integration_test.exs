@@ -74,6 +74,63 @@ defmodule GallformersWeb.PhenologyIntegrationTest do
     assert render(compact) =~ "25–55"
   end
 
+  defp plot_predictions(view) do
+    [encoded] =
+      view
+      |> render()
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#phenology-chart")
+      |> LazyHTML.attribute("data-predictions")
+
+    Jason.decode!(encoded)
+  end
+
+  test "panel selection controls prediction text but never plot predictions", %{conn: conn} do
+    sp = gall("Display contract (agamic)")
+    observation(sp, "developing", 160, "viable")
+    observation(sp, "maturing", 350)
+
+    {:ok, view, _} =
+      live(conn, ~p"/phenology?species_id=#{sp.id}&lat=30&events=onset,emergence,rearing")
+
+    before = plot_predictions(view)
+    assert length(before) == 3
+
+    for display <- ["table", "species", "predictions", "table"] do
+      view |> form("#phenology-display-form", display: display) |> render_change()
+      assert plot_predictions(view) == before
+      assert has_element?(view, "#phenology-predictions") == (display == "predictions")
+      assert has_element?(view, "#phenology-chart")
+    end
+
+    view
+    |> form("#phenology-model-form",
+      events: %{onset: "false", emergence: "false", rearing: "false"}
+    )
+    |> render_change()
+
+    for display <- ["species", "predictions", "table"] do
+      view |> form("#phenology-display-form", display: display) |> render_change()
+      assert windows(view) == []
+      refute has_element?(view, "#phenology-predictions")
+      assert has_element?(view, "#phenology-chart[data-predictions='[]']")
+    end
+
+    view
+    |> form("#phenology-model-form",
+      events: %{onset: "false", emergence: "true", rearing: "false"}
+    )
+    |> render_change()
+
+    assert [%{"event" => "emergence"}] = plot_predictions(view)
+    refute has_element?(view, "#phenology-predictions")
+    assert has_element?(view, "#phenology-obs-table")
+
+    view |> form("#phenology-display-form", display: "predictions") |> render_change()
+    assert length(windows(view)) == 1
+    assert has_element?(view, "#phenology-predictions [data-event='emergence']")
+  end
+
   test "dots, event toggles and URL changes are independent", %{conn: conn} do
     sp = gall("Visibility contract (agamic)")
     observation(sp, "developing", 160, "viable")

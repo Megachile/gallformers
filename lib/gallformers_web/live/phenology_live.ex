@@ -815,7 +815,7 @@ defmodule GallformersWeb.PhenologyLive do
                 data-target-lat={
                   to_string(@filters[:target_lat] || PhenologyFilters.default_target_lat())
                 }
-                data-target-lat-shown={to_string(@filters.display_mode == :predictions)}
+                data-target-lat-shown={to_string(@predictions != [])}
                 data-tiles-url={tiles_url()}
                 class="mt-2 h-[280px] rounded-md border border-gray-200 bg-gf-sky-blue"
               >
@@ -924,12 +924,11 @@ defmodule GallformersWeb.PhenologyLive do
               data-points={@chart_points_json}
               data-lat-range={Jason.encode!(@chart_lat_range)}
               data-predictions={Jason.encode!(@predictions)}
-              data-show-predictions={to_string(@filters.display_mode == :predictions)}
               class="relative h-[540px] rounded-lg border border-gray-200 bg-white"
             >
             </div>
             <div class="mt-3">
-              <p :if={@filters.display_mode == :predictions} class="text-xs text-gray-600 mb-2">
+              <p :if={@predictions != []} class="text-xs text-gray-600 mb-2">
                 Solid boundaries = onset (5th–10th percentile);
                 dashed = emergence; dotted = viable collections. Emergence and collection bands
                 show the middle 50%, with a lighter middle 80%. These are not confidence intervals.

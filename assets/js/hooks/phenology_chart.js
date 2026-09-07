@@ -308,7 +308,6 @@ export default {
     g.selectAll('*').remove()
     const labels = this._predictionLabelsG
     labels.selectAll('*').remove()
-    if (this.el.dataset.showPredictions !== 'true') return
     const predictions = JSON.parse(this.el.dataset.predictions || '[]')
     const x = this._x, y = this._y
     const [latLo, latHi] = y.domain()

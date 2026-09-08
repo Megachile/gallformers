@@ -74,7 +74,7 @@ defmodule GallformersWeb.PhenologyIntegrationTest do
     refute render(explorer) =~ other.name
 
     render_patch(explorer, ~p"/phenology?species_id=#{sp.id}&display=table")
-    assert has_element?(explorer, "#phenology-obs-table a[href='/gall/#{sp.id}']", sp.name)
+    assert has_element?(explorer, "#phenology-table-host[data-mode='table']")
 
     compact |> element("#toggle-phenology") |> render_click()
     refute has_element?(compact, "#gall-phenology-content")
@@ -136,7 +136,7 @@ defmodule GallformersWeb.PhenologyIntegrationTest do
 
     assert [%{"event" => "emergence"}] = plot_predictions(view)
     refute has_element?(view, "#phenology-predictions")
-    assert has_element?(view, "#phenology-obs-table")
+    assert has_element?(view, "#phenology-table-host[data-mode='table']")
 
     view |> form("#phenology-display-form", display: "predictions") |> render_change()
     assert length(windows(view)) == 1

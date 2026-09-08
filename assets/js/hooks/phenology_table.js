@@ -1,33 +1,13 @@
 import { phenologyState, escapeHtml, readPoints, applySelection } from './phenology_state'
 
-// Cap on how many rows we render in the DOM. Anything past this lives
-// only in memory (and in the CSV download). Keeps the page from
-// stretching to thousands-of-rows length when a wide brush picks up
-// most of the obs set.
+// Tables own their HTML and use the chart's shared client-side selection.
+// CSV is the no-JavaScript/full-result fallback; DOM caps keep large sets usable.
 const OBS_ROW_CAP = 50
 const SPECIES_ROW_CAP = 200
 
-// Renders the data table or species list below the phenology chart from
-// the same `data-points` array the chart and tooltip already consume.
-//
-// The host element is marked `phx-update="ignore"` — once we mount, the
-// LV stops touching the inner DOM and the hook owns it. Re-render is
-// driven by two things:
-//
-//   1. Brush changes (instant, no server roundtrip). The chart hook
-//      pushes new bounds into `phenologyState`; we re-render rows.
-//
-//   2. The underlying obs set changing (filter applied → new
-//      data-points on the chart). The LV bumps `data-version` on the
-//      host, our `updated()` runs, we re-render from the latest points.
-//
 export default {
   mounted() {
     this._unsubscribe = phenologyState.subscribe(() => this.render())
-    this._lastVersion = this.el.dataset.version || ''
-    this._lastMode = this.el.dataset.mode || ''
-    this._lastSort = this.el.dataset.sort || ''
-    this._lastDir = this.el.dataset.sortDir || ''
 
     // Clicking a species-table column header sorts by that column. Delegated
     // on the host so it survives innerHTML re-renders. The server round-trips
@@ -63,24 +43,7 @@ export default {
   },
 
   updated() {
-    // Host attribute changed — filter applied (new obs version), display mode
-    // toggled (table ↔ species), or the species-list sort changed. Re-render.
-    const v = this.el.dataset.version || ''
-    const m = this.el.dataset.mode || ''
-    const s = this.el.dataset.sort || ''
-    const d = this.el.dataset.sortDir || ''
-    if (
-      v !== this._lastVersion ||
-      m !== this._lastMode ||
-      s !== this._lastSort ||
-      d !== this._lastDir
-    ) {
-      this._lastVersion = v
-      this._lastMode = m
-      this._lastSort = s
-      this._lastDir = d
-      this.render()
-    }
+    this.render()
   },
 
   destroyed() {
@@ -257,7 +220,7 @@ function renderSpeciesTable(points, sort, dir) {
   `
 }
 
-// The four columns ARE the sort keys — clicking a header sorts by it, and
+// The columns are the sort keys — clicking a header sorts by it, and
 // re-clicking flips direction (no separate control). Server sort_species
 // mirrors these keys; defaultDir mirrors PhenologyFilters.default_sort_dir/1.
 const SPECIES_COLS = [
@@ -283,7 +246,7 @@ function speciesHeader(sort, dir) {
   }).join('')
 }
 
-// Mirrors PhenologyLive.sort_species_rows/3 (name is the stable ascending
+// Matches the CSV controller's ordering (name is the stable ascending
 // tiebreaker; `dir` flips the primary key). sign = +1 asc, -1 desc.
 function sortSpeciesRows(rows, sort, dir) {
   const byName = (a, b) => (a.name || '').localeCompare(b.name || '')

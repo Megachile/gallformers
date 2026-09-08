@@ -1,6 +1,29 @@
 import { test, expect } from 'vitest'
 import Table, { isInatObservation, sortObservationRows } from './phenology_table'
 
+test.each([
+  ['name', 'asc', ['Alpha', 'Beta']], ['name', 'desc', ['Beta', 'Alpha']],
+  ['obs_count', 'asc', ['Beta', 'Alpha']], ['obs_count', 'desc', ['Alpha', 'Beta']],
+  ['recency', 'asc', ['Beta', 'Alpha']], ['recency', 'desc', ['Alpha', 'Beta']],
+])('species rendering sorts %s %s and uses the latest year', (sort, sortDir, names) => {
+  const chart = document.createElement('div')
+  chart.id = 'phenology-chart'
+  chart.dataset.points = JSON.stringify([
+    {species_id: 1, species_name: 'Alpha', date: '2023-12-31'},
+    {species_id: 1, species_name: 'Alpha', date: '2025-01-01'},
+    {species_id: 2, species_name: 'Beta', date: '2024-06-01'},
+  ])
+  document.body.append(chart)
+  const el = document.createElement('div')
+  Object.assign(el.dataset, {mode: 'species', sort, sortDir})
+  try {
+    Table.render.call({el})
+    expect([...el.querySelectorAll('tbody a')].map(a => a.textContent)).toEqual(names)
+    expect(el.querySelector('tbody').textContent).toContain('2025-01-01')
+    expect(el.querySelector('tbody').textContent).not.toContain('2023-12-31')
+  } finally { chart.remove() }
+})
+
 test('identifies observation destinations, not source labels or lookalike URLs', () => {
   expect(isInatObservation('https://www.inaturalist.org/observations/123')).toBe(true)
   expect(isInatObservation('https://inaturalist.org/observations/123?foo=bar')).toBe(true)

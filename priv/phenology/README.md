@@ -62,48 +62,7 @@ non-leap normalization. This existing calendar distinction can produce one-day
 differences between a leap-year point and a normalized prediction. The legacy
 `seasind` database field remains import provenance, not selection input.
 
-### Retired local-onset pilot
-
-The local evidence correction was withdrawn on September 7, 2026. Its code,
-parameters, benchmark results and limitations are recorded in Mull matter 439a,
-with a separate replayable local archive. The narrow pilot is recoverable at
-commit `7098247e`; the broader five-degree pilot at `e98e05dc`.
-
-Neither correction is part of the serving model. Repeated local first-positive
-dates can reflect late sampling of persistent galls rather than local onset.
-Smoothing those dates did not resolve that ambiguity and produced implausibly
-late southern cinerosa estimates. The restored shared-clock curve accepts its
-known latitude-transfer limitations, including early northern DQP predictions,
-without learning a species-specific curve from those local dates.
-
-### Other events and presentation
-
-The gall-page chart spans the full panel width at every viewport size. Its
-latitude input and shared date summary sit below it, rather than taking half
-the available plot width. The chart remains lazy-loaded and uses the explorer's
-plotting code in read-only selection mode.
-
-Both views present short, action-oriented sentences grouped by generation, in
-fresh onset → viable collection → emergence order, with the predicted date or
-window emphasized. One closed-by-default “Evidence &
-methods” disclosure contains the source anchor, record counts, percentile context
-and model limitations. Few-record and latitude-coverage warnings remain visible
-beside the affected answer. A single-date window is printed once; winter windows
-retain their December–January order. This is presentation only: chart contours,
-thresholds and selected-event behavior are unchanged.
-
-Both charts use the same smaller observation symbols. Ordinary gall records are
-translucent; explicitly viable records or records with a nonblank insect-stage
-annotation are fully opaque and drawn above ordinary points, regardless of gall
-phase. This restores the Shiny evidence emphasis without changing model inputs.
-Opacity is applied once to the ordinary-points layer, not independently to its
-symbols: overlapping ordinary records remain faint. Hover uses a temporary
-opaque copy without changing the underlying evidence layer. Interval
-shading stays behind the points; outlines sit above them with a narrow white
-halo for contrast in dense datasets. Hover restores full point emphasis and
-source details. No observations are thinned by this styling. Senescent records
-are omitted from plotted points and legends in both views, but remain in the
-underlying evidence, tables and exports; prediction inputs are unchanged.
+### Other events and limitations
 
 Emergence pools maturing and Free-living phases (not
 perimature or enclosed Adult annotations). Viable collections require explicit

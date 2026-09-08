@@ -12,10 +12,7 @@ defmodule GallformersWeb.PhenologyLiveTest do
 
   import Phoenix.LiveViewTest
 
-  alias Gallformers.Phenology
-  alias Gallformers.Repo
-  alias Gallformers.Species.Species
-  alias Gallformers.Taxonomy.Taxonomy
+  import Gallformers.PhenologyFixtures
 
   # All explorer phenophases checked — the equivalent of "show me everything"
   # for tests that want to focus only on search / generation filtering.
@@ -28,74 +25,6 @@ defmodule GallformersWeb.PhenologyLiveTest do
     |> LazyHTML.attribute("data-points")
     |> hd()
     |> Jason.decode!()
-  end
-
-  defp insert_gall(name) do
-    {:ok, sp} =
-      Repo.insert(%Species{name: name, taxoncode: "gall", datacomplete: false})
-
-    sp
-  end
-
-  defp insert_obs(species_id, attrs) do
-    Map.merge(
-      %{
-        species_id: species_id,
-        source_type: "literature",
-        date: ~D[2024-06-15],
-        doy: 167,
-        latitude: 42.0,
-        longitude: -83.0,
-        phenophase: "maturing"
-      },
-      attrs
-    )
-    |> Phenology.create_observation()
-  end
-
-  defp insert_taxon(attrs) do
-    {:ok, node} =
-      Repo.insert(struct(Taxonomy, Map.put_new(attrs, :is_placeholder, false)))
-
-    node
-  end
-
-  defp link_taxon(species_id, taxonomy_id) do
-    Repo.insert_all("species_taxonomy", [
-      %{species_id: species_id, taxonomy_id: taxonomy_id}
-    ])
-  end
-
-  defp insert_gall_traits(species_id) do
-    Repo.insert_all("gall_traits", [%{species_id: species_id}])
-  end
-
-  defp insert_color(name) do
-    {1, [%{id: id}]} = Repo.insert_all("color", [%{color: name}], returning: [:id])
-    id
-  end
-
-  defp link_color(species_id, color_id) do
-    Repo.insert_all("gall_color", [%{species_id: species_id, color_id: color_id}])
-  end
-
-  defp insert_place(name, type) do
-    code = "zt-#{System.unique_integer([:positive])}"
-
-    {1, [%{id: id}]} =
-      Repo.insert_all("place", [%{name: name, type: type, code: code}], returning: [:id])
-
-    id
-  end
-
-  defp link_place_hierarchy(parent_id, child_id) do
-    Repo.insert_all("place_hierarchy", [%{parent_id: parent_id, place_id: child_id}])
-  end
-
-  defp link_gall_range(species_id, place_id) do
-    Repo.insert_all("gall_range", [
-      %{species_id: species_id, place_id: place_id, precision: "exact"}
-    ])
   end
 
   describe "/phenology base rendering" do
@@ -461,64 +390,26 @@ defmodule GallformersWeb.PhenologyLiveTest do
       %{few: few, many: many}
     end
 
-    defp gall_link_index(html, id), do: elem(:binary.match(html, "/gall/#{id}"), 0)
+    test "sort URL parameters reach the table renderer", %{conn: conn} do
+      for {query, sort, dir} <- [
+            {"", "name", "asc"},
+            {"&sort=obs_count", "obs_count", "desc"},
+            {"&sort=recency", "recency", "desc"},
+            {"&sort=obs_count&dir=asc", "obs_count", "asc"},
+            {"&sort=name&dir=desc", "name", "desc"}
+          ] do
+        {:ok, view, _html} = live(conn, "/phenology?search=&display=species" <> query)
 
-    test "the columns are the sort control — active arrow, no dropdown", %{conn: conn} do
-      {:ok, _view, default} = live(conn, ~p"/phenology?search=&display=species")
-      # No separate dropdown/form — the column headers do the sorting.
-      refute default =~ ~s(name="sort")
-      refute default =~ ~s(phx-change="sort_species")
-      # Default sort = name, ascending → Species header carries the ▲ arrow.
-      assert default =~ "Species ▲"
-
-      {:ok, _view, by_obs} = live(conn, ~p"/phenology?search=&display=species&sort=obs_count")
-      assert by_obs =~ "Observations ▼"
-      refute by_obs =~ "Species ▲"
-    end
-
-    test "the direction arrow reflects the dir param", %{conn: conn} do
-      {:ok, _view, obs_asc} =
-        live(conn, ~p"/phenology?search=&display=species&sort=obs_count&dir=asc")
-
-      assert obs_asc =~ "Observations ▲"
-
-      {:ok, _view, name_desc} =
-        live(conn, ~p"/phenology?search=&display=species&sort=name&dir=desc")
-
-      assert name_desc =~ "Species ▼"
-    end
-
-    test "default sort is alphabetical by name", %{conn: conn, few: few, many: many} do
-      {:ok, _view, html} = live(conn, ~p"/phenology?search=&display=species")
-      assert gall_link_index(html, few.id) < gall_link_index(html, many.id)
-    end
-
-    test "sort=obs_count orders by observation count desc", %{conn: conn, few: few, many: many} do
-      {:ok, _view, html} = live(conn, ~p"/phenology?search=&display=species&sort=obs_count")
-      assert gall_link_index(html, many.id) < gall_link_index(html, few.id)
-    end
-
-    test "sort=recency orders by latest observation date desc", %{
-      conn: conn,
-      few: few,
-      many: many
-    } do
-      {:ok, _view, html} = live(conn, ~p"/phenology?search=&display=species&sort=recency")
-      assert gall_link_index(html, many.id) < gall_link_index(html, few.id)
-    end
-
-    test "dir=asc reverses the ordering", %{conn: conn, few: few, many: many} do
-      {:ok, _view, html} =
-        live(conn, ~p"/phenology?search=&display=species&sort=obs_count&dir=asc")
-
-      # Ascending obs count → the 1-obs species now precedes the 3-obs one.
-      assert gall_link_index(html, few.id) < gall_link_index(html, many.id)
+        assert has_element?(
+                 view,
+                 "#phenology-table-host[data-sort='#{sort}'][data-sort-dir='#{dir}']"
+               )
+      end
     end
 
     test "the sort control updates key + direction without reloading obs", %{conn: conn} do
       # The species table host is phx-update="ignore" (the JS hook owns its
-      # rows and re-sorts off data-sort/-dir), so assert the host attributes
-      # the hook reads flip — not the SSR row order, which the LV won't touch.
+      # rows and re-sorts off data-sort/-dir).
       {:ok, view, html} = live(conn, ~p"/phenology?search=&display=species")
       assert html =~ ~s(data-sort="name")
       assert html =~ ~s(data-sort-dir="asc")
@@ -699,11 +590,10 @@ defmodule GallformersWeb.PhenologyLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/phenology?search=&display=table")
 
-      assert html =~ ~s(id="phenology-obs-table")
+      assert html =~ ~s(data-mode="table")
       assert html =~ "Acraspis erinacei"
-      assert html =~ "Lifestage"
-      assert html =~ "Viability"
-      assert html =~ "DOY"
+      assert html =~ "Use Download CSV"
+      assert length(points(html)) == 1
       # Download link present for table view
       assert html =~ "Download CSV"
       assert html =~ "/phenology/export.csv"
@@ -718,11 +608,10 @@ defmodule GallformersWeb.PhenologyLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/phenology?search=&display=species")
 
-      assert html =~ ~s(id="phenology-species-table")
+      assert html =~ ~s(data-mode="species")
       assert html =~ "Acraspis a"
       assert html =~ "Aulacidea b"
-      # Two obs for Acraspis a → "2" should appear in the n_obs column.
-      assert html =~ "Acraspis a"
+      assert Enum.frequencies_by(points(html), & &1["species_id"]) == %{sp1.id => 2, sp2.id => 1}
       assert html =~ "Download CSV"
     end
 
@@ -746,7 +635,7 @@ defmodule GallformersWeb.PhenologyLiveTest do
 
       # Chart on top + data table below.
       assert html =~ ~s(id="phenology-chart")
-      assert html =~ ~s(id="phenology-obs-table")
+      assert html =~ ~s(data-mode="table")
     end
 
     test "?lat= sets the prediction target latitude", %{conn: conn} do
@@ -777,7 +666,7 @@ defmodule GallformersWeb.PhenologyLiveTest do
 
     test "sparse evidence remains available with a warning", %{conn: conn} do
       sp = insert_gall("Dryocosmus quercuspalustris (sexgen)")
-      # Only 3 obs with seasind — below @min_obs = 4.
+
       for s <- [0.30, 0.40, 0.50] do
         insert_obs(sp.id, %{phenophase: "maturing", seasind: s})
       end
@@ -785,15 +674,6 @@ defmodule GallformersWeb.PhenologyLiveTest do
       {:ok, _view, html} = live(conn, ~p"/phenology")
       assert html =~ "Few records"
     end
-
-    # Brush behavior — selecting points on the chart, narrowing the table
-    # to the brush window, the Clear-selection button, and the CSV link
-    # picking up brush bounds — used to be testable via render_hook on
-    # "set_selection" / "clear_selection". Those server events are gone
-    # (the brush lives entirely in phenology_chart.js / phenology_state.js
-    # / phenology_chrome.js to avoid a per-gesture LV roundtrip), so the
-    # behavior is now JS-only. Move to a browser-level e2e suite if we
-    # want coverage.
 
     test "?species_id= back-compat seeds search from the species name", %{conn: conn} do
       sp = insert_gall("Specific testica (agamic)")

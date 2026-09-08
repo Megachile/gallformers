@@ -2,7 +2,7 @@
 status: raw
 effort: 1-2 days
 created: 2026-02-14
-updated: 2026-09-07
+updated: 2026-09-08
 epic: cynipid
 docs: ['']
 relates: [85c0]
@@ -169,365 +169,69 @@ The patterns established here — iNat data integration, phenology modeling, key
 - **Anatomy data collection**: How will adult anatomy traits be gathered initially? Manual entry from literature, extraction from iNat photos, expert contribution, or some combination?
 - **Geographic scope**: The phenology tool currently has best coverage in North America. How does this interact with the Western Hemisphere expansion plans?
 
-## Release implementation (2026-09-07)
+## Release implementation status — September 8, 2026
 
-The `phenology-release` branch is rebuilt on current upstream main, without the
-experimental branch history. It contains the public explorer, a lazy per-gall
-panel, and one shared context/model/result-component path. The original local
-prototype is preserved separately.
+Draft PR: https://github.com/jeffdc/gallformers/pull/578
+Branch: phenology-release. Public explorer plus lazy, full-width gall-page chart;
+one context, prediction model, chart renderer and result component. Model contract
+and climate-reference provenance live in priv/phenology/README.md.
 
-- Fresh-gall onset uses the earliest seasonally normalized developing record,
-  with one line/date and a source-linked anchor, replacing the initial q05–q10
-  estimate. This relies on curated stage labels, not an automatic credibility
-  classification. Emergence pools maturing and
-  Free-living. Viable collection uses explicit viability regardless of phase.
-  Event toggles and visible observation stages are independent. Prediction lines
-  and date markers on the plot persist when changing the panel below the chart.
-  That selector still chooses Predictions (text), Data table, or Species list;
-  it never controls plot visibility.
-- Selected species pool within generation. One shared quarter-degree 25–55°N
-  thermal-landmark reference supplies both lines and date outputs. Legacy seasind
-  remains only as an optional selection lens, not a second prediction model.
-- Gall pages do no phenology query until expansion, then reuse loaded evidence.
-  Full-chart links preserve exact GF identity and latitude. Both views use the
-  same date renderer and plain-language warnings for few records, limited
-  latitude coverage and extrapolation beyond the actual recorded latitude range.
-  Geographic-cell counts remain model metadata, not public-facing terminology.
-- Ordinary queries use Ecto; recursive taxonomy/place CTEs retain explicit SQL.
-  Operational failures propagate instead of masquerading as an empty dataset.
-- One reversible migration creates empty evidence/blacklist tables. It contains
-  no imports, relabeling or source-metadata mutation. R/Python curation, literature
-  intake, perimature review heuristics, regional climate experiments, local server
-  settings and observation snapshots are outside this PR.
-- The prescreen also fixed cold-start event parsing, unsafe external table-link
-  protocols, a shared toggle CSS cascade conflict, and mobile chart sizing.
+### Agreed behavior
 
-Verification: `mix precommit` (2,196 tests, zero failures; normal excluded tags),
-Dialyzer (zero errors), JavaScript tests (180 passing), assets build, fresh-table
-migration and rollback, and desktop/mobile browser checks. Both views return
-identical dates; visibility and event toggles operate independently; table
-sorting works. Fifty-four event/latitude comparisons across D. quercuspalustris,
-Eurosta solidaginis and four Disholcaspis species match the prototype's dates and
-evidence counts at the initial refactor checkpoint, before the intentional onset
-change above. This is refactor parity, not additional ecological validation.
+- Earliest normalized developing record anchors fresh onset. Emergence pools
+  maturing and Free-living; viable collection requires explicit viability.
+  Species pool within generation. No species-specific fitted correction.
+- Dot visibility, predicted events and the below-chart panel are independent.
+  Summaries use fresh → viable → emerging order, with methods collapsed and
+  coverage/extrapolation warnings visible.
+- Gall panels load on expansion, reuse evidence for latitude edits, and preserve
+  exact GF identity in full-chart links. Both views share lines and dates.
+- Seasonal-landmark selection transfers a reference date ± days across latitude.
+  Tables, count and CSV use the same window without refitting predictions.
+  Invalid inputs select nothing and CSV returns 400. Stored DOY (including 366)
+  differs from non-leap prediction dates; source fields are not rewritten.
+- Ordinary dots composite as one translucent layer; viable or insect-stage
+  records are opaque above it. Hover is temporary. Senescent is unplotted but
+  retained in tables/exports. Foreground prediction outlines remain readable.
 
-Per-gall scope audit: the preserved prototype also showed a source-count breakdown
-and independent stage IQRs (raw dates without a target latitude, seasind-adjusted
-with one). The shared three-event compact panel replaced those stage windows and
-omitted the source breakdown. The older data-layer proposal described an embedded
-scatter chart and filters; that was not present in the preserved summary
-component. These are real scope differences, not just a code-only refactor.
-Restoring descriptive context or an embedded chart needs a separate UI decision;
-do not silently restore the obsolete stage-duration model.
+### Retired experiments and known limitations
 
-Onset/coverage follow-up verification: `mix precommit` (2,205 tests, zero failures;
-84 standard exclusions), Dialyzer (zero errors), 182 JavaScript tests, assets build
-and desktop/mobile browser checks pass. All 36 emergence/rearing comparisons
-retain prototype dates/counts. D. cinerosa onset at 30°N now uses the July 15
-records rather than the August q05; the several same-date/location observations
-count as one replicate. Tests cover normalized rather than raw-date ranking,
-winter onset, later-record dominance, reproducible anchors and warning cutoffs.
+Local onset corrections were withdrawn at Adam's request: even five-degree
+smoothing put southern cinerosa implausibly late. Persistent gall observations
+do not reliably identify local onset. The accepted agnostic clock still predicts
+northern DQP too early. More late observations are not sufficient reason to bend it.
 
-### Northern-onset diagnosis after review
+Narrow pilot: commit 7098247e; broad pilot: e98e05dc. Replayable archive:
+Phenology/local-imports/release-review/local-onset-pilot-2026-09-07/.
+Detailed development history and verification results remain at commit 9aead685.
+Rollback matched all 558 tested event/latitude combinations to the pre-pilot model.
+Those comparisons establish implementation parity, not ecological validation.
 
-Adam reports that the new D. quercuspalustris onset is implausibly early in the
-north. Read-only audit of the current snapshot supports a latitude-transfer
-problem: one March 15, 2023 record at 34.551°N (iNat 151319576) sets the entire
-curve. At 40°N it predicts April 2, versus April 14 for the earliest record
-within ±2° after clock normalization (393 date/location records, ten years).
-At 45°N it predicts April 13 versus May 10 (55 records, seven years). The prior
-global q05 gave April 23 and May 7 respectively. These are descriptive comparisons
-of positive records, not absence-based proof of biological onset. Coverage near
-48°N is only one record; there are none within ±2° of 50°N.
+### Local data, separate from application release
 
-A total-count switch from minimum to q05 is not a sufficient fix: D. cinerosa
-has 282 developing records, yet its informative July 15 anchor is swamped by
-late records and q05 moves to August. Proposed next step, not implemented or
-validated: keep the shared clock as the sparse-data fallback, but allow a smooth
-latitude-dependent correction from independent local leading-edge evidence where
-available. Local onset information, rather than total developing observations,
-must control the weight. Credible early records constrain their own local timing,
-not every latitude; local first-positive dates can still be delayed by missing
-early sampling. Test across years/locations and retain the cinerosa case as a
-guard against late-tail contamination. No serving-model or database changes were
-made during this diagnosis.
+Explicit local PostgreSQL promotion inserted 454 and updated three rows:
+398 eburneum iNat, 12 fumosa iNat and 47 pulchripennis leaf-gall records.
+Existing literature remains. Audit/script:
+Phenology/local-imports/display-study-20260908T053045940987Z and
+Phenology/local-imports/release-review/import_study_batch.py.
+Repeated dry run was unchanged. No production import occurred.
+Observation 317312181 was subsequently refreshed to dormant from corrected iNat
+metadata; audit: phase-refresh-317312181-20260908T054318Z.
 
-### Local onset pilot and embedded gall chart
+Nine BugGuide and four iNat Sphaeroteras adults remain provisional evidence,
+not assigned to pulchripennis agamic. Whether to display them separately is still
+unanswered. Gall 195310724 lacks date/location and remains excluded.
 
-Implemented the requested evidence-weighted correction in a separate pure
-`Phenology.Onset` module, without per-species files or climate downloads. One-degree
-grid points use ±1° neighborhoods; earliest normalized development supplies the
-local edge, and only the following fourteen days supply support. Count unique
-quarter-degree locality/year combinations, cap support at two per year, subtract
-one, and shrink with `s / (s + 2)`. Isolated local edges cannot force corrections.
-Smooth, bounded interpolation retains the earliest anchor locally. Beyond the
-supported region, continue the clock from the nearest corrected phase rather
-than bending back to the original southern date. Distant support is warned about,
-not displayed as a confidence probability. All constants are provisional pilot
-heuristics, not ecological invariants.
+### Subtractive review and release gates
 
-Full-data DQP onset at 40°N is now April 11 (fallback April 2), and at 45°N May 8
-(fallback April 13). Cinerosa at 30°N remains July 15. Cross-year and buffered
-latitude-band tests improve against first-positive proxies for DQP, Eurosta,
-quercusoperator sexual and quercushirta agamic. Cinerosa's three spatial holdouts
-worsen (18.4 → 28.6 days mean absolute error), despite retaining the full-data
-July anchor; this is not ready to claim universal validation. No parameters were
-tuned on the held-out folds. Full curve generation measured roughly 1–23 ms for
-the checked cohorts. The application snapshot has no developing records matching
-eburne; this benchmark did not import data to fill that gap. Detailed read-only
-audit scripts/results remain in Phenology/local-imports/release-review.
+Removed unused legacy Math module and duplicate server-rendered tables. JavaScript
+owns interactive table HTML; CSV remains the full-result/no-JavaScript fallback.
+Shared database fixtures replace repeated test setup; sort behavior is tested at
+its renderer and URL/event boundaries. No model or curated-data changes.
 
-Gall pages now embed the same chart hook and shared point payload used by the
-explorer, with a read-only selection mode so they do not mutate explorer brush
-state. Observations and source totals appear on expansion before a latitude is
-entered. Latitude entry adds the shared event lines and dates; the compact plot
-includes the requested latitude, including extrapolation cases. Evidence/payload
-loading remains lazy and cached. Source-count breakdown is restored. No old
-stage-duration model or second rendering implementation was introduced.
-
-Verification for this follow-up: `mix precommit` passes (2,213 tests, 84 standard
-exclusions), Dialyzer reports zero errors, 184 JavaScript tests pass, and assets
-build succeeds. The read-only real-data check retains all 36 emergence/rearing
-comparisons. Edge browser checks cover compact chart before/after latitude entry,
-desktop/mobile sizing, shared prediction arrays, absent brush controls on the
-compact chart, source totals, and existing explorer toggle/panel independence.
-
-### Broader correction and full-width compact chart
-
-Adam found the one-degree local changes too lumpy and ecologically unsupported.
-The correction now has knots spaced five degrees apart, centered on the earliest
-anchor's latitude, with observations assigned to the nearest knot. Outer bands
-include records through the supported domain edges. The same early-window support
-and bounded interpolation rules remain; no changes to emergence or collections.
-This is a scale constraint on the fitted correction, not cosmetic chart smoothing.
-
-The broader DQP estimate is April 12 at 40°N and April 29 at 45°N; cinerosa at 30°N
-remains July 15. The loss of the narrow northern May 8 fit is a visible tradeoff,
-not concealed as unchanged timing. DQP buffered spatial holdout MAE is 5.0 days
-(12.6 fallback; 5.5 narrow pilot), and year holdout MAE is 14.2 days (21.2 fallback;
-13.9 narrow pilot). Eurosta improves versus fallback but less than with the narrow
-pilot; cinerosa's three spatial holdouts still worsen versus fallback (18.4 →
-20.0 days), though less than before. These are sampling-dependent first-positive
-proxies. The five-degree scale was requested, not selected by holdout optimization.
-
-The compact gall chart is now full-width, with latitude and results below it at
-all breakpoints. Browser coverage includes 960px half-screen width as well as
-desktop/mobile; the chart must fill its panel and the input must lie below it.
-
-Verification: 2,215 Elixir tests pass with the 84 standard exclusions, assets build
-passes, and the actual-browser layout/interaction checks pass. Regression tests
-enforce five-degree minimum knot spacing, preservation of the source anchor,
-domain-edge evidence inclusion, and the full-width gall layout. The 36 unchanged
-emergence/rearing comparisons still match; no observation data was modified.
-
-### Local-onset pilot withdrawn; agnostic curve restored
-
-On September 7, 2026, Adam chose to remove the local evidence correction from
-both displays while retaining all chart/UI improvements. The broad pilot still
-put southern cinerosa onset implausibly late (September in his review). Repeated
-local first-positive dates may describe late sampling of persistent galls, not
-the local beginning of development; smoothing cannot resolve that ambiguity.
-
-Serving onset behavior is restored to commit `4c0ec924`: the earliest developing
-record on the centered seasonal clock anchors one species-independent curve.
-This does not restore q05–q10 or a developing-duration window. The known early
-northern DQP transfer remains a limitation, accepted rather than hidden. No
-local-weight metadata, correction module or pilot messaging remains in the app.
-The full-width lazy gall chart, source totals/links, shared date output,
-independent plot/panel controls and coverage warnings remain unchanged.
-
-The narrow implementation remains in commit `7098247e`; the broad one in
-`e98e05dc`. A self-contained archive outside application code also preserves the
-broad model, tests, exact method description, benchmark script and saved results:
-`C:/Users/adam/Documents/GitHub/Phenology/local-imports/release-review/local-onset-pilot-2026-09-07/`.
-Its README and isolated-module replay script allow revisiting the experiment
-without restoring retired production code or overwriting the saved results.
-Any future attempt needs independent onset evidence and whole-domain checks for
-persistent-gall contamination, not only improved held-out first-positive scores.
-
-Rollback verification: all 558 combinations of six species, integer latitudes
-25–55 and three events exactly match `4c0ec924`, including full contours and
-metadata. Southern cinerosa returns to July 12 at 25°N, July 13 at 27°N, July 14
-at 29°N and July 15 at 30°N. A new regression test verifies that repeated late
-local records do not bend the shared onset curve. `mix precommit` passes with
-2,206 tests and 84 standard exclusions. The archived pilot's ten tests pass under
-isolated module names. Assets build and actual-browser checks pass, preserving
-full-width layout, shared dates and independent event/stage/panel controls.
-Dialyzer reports zero errors, and all 184 JavaScript tests pass. No observation
-data was modified; the retired model and tests were removed only after archival.
-
-### Sentence-first prediction summaries
-
-Adam found the date outputs difficult to scan because method and evidence
-metadata competed with the answer. Both displays now use the same condensed
-sentence-first result component, grouped by generation. Dates are emphasized:
-“Fresh galls may start appearing around …”, “Look for emerging or active adults
-around …”, and “Try collecting galls for rearing around …”. These remain estimates,
-not promises of presence, viability or true onset.
-
-Record counts, the onset anchor/source, percentile context and general model
-limitations move into one native, closed-by-default “Evidence & methods”
-disclosure, reusing the site's details/summary pattern without new JS or server
-state. Few-record, narrow-coverage and extrapolation warnings remain visible
-beside the specific answer. Single-date windows no longer repeat the same date.
-Chart legends are shortened to line-style meanings. Model/data, full-width chart
-layout, event toggles and below-chart panel selection are unchanged.
-
-Verification: `mix precommit` passes with 2,208 tests and 84 standard exclusions;
-Dialyzer reports zero errors; assets build succeeds. New component tests cover
-all three sentences, winter and single-date output, generation grouping, retained
-warnings and closed method details. Actual Edge checks confirm keyboard opening
-and closing of the disclosure without changing plot curves, mobile/half-screen
-layout, exact agreement between gall/explorer outputs and all existing controls.
-No observation data was modified.
-
-Follow-up: within each generation, summaries and evidence details now follow
-fresh gall onset → viable collections → adult emergence regardless of the model
-input order. This ordering is a presentation sort only; no prediction changes.
-The sentence-rendering test checks both forward and reversed input order.
-
-Dense-chart inspection found observations drawn after the prediction-overlay
-group, obscuring interval outlines, with 60px² symbols, 0.55 fill opacity and
-opaque dark outlines. Adam requested the same solution in both displays. Both
-now use 36px² symbols and 0.25 fill/stroke opacity, restoring full opacity on
-hover. Interval shading stays below points; interval outlines and medians occupy
-a clipped foreground layer that does not intercept pointer events. Narrow white
-halos beneath boundary strokes preserve contrast through dense same-color dots.
-All observations remain plotted: no downsampling, page-specific styling, density
-model or new visibility control. Prediction geometry and dates are unchanged.
-
-A 500-record JavaScript regression checks identical styling in both modes,
-layer ordering, clip paths, complete point retention, hover emphasis/tooltips,
-and removal of all foreground paths when predictions are toggled off. Actual
-hover-then-mobile testing also exposed an old invisible tooltip contributing to
-page overflow; hidden tooltips now use display:none as well as visibility:hidden.
-
-Verification: `mix precommit` passes (2,208 tests, 84 standard exclusions),
-Dialyzer reports zero errors, all 185 JavaScript tests pass, and assets build
-succeeds. Actual-browser checks verify the new order, identical point opacity and
-layer ordering in both charts, functioning hover through foreground lines,
-independent controls, matching dates, and mobile layout without overflow.
-
-Senescent follow-up: Adam clarified that senescent observations should not be
-plotted or listed in the legend. The shared chart now excludes those points
-before drawing either view's symbols or legend. Stored/payload records, tables,
-exports and prediction input remain unchanged. Predictions still render when
-senescent records are the only supplied observations; the target latitude supplies
-the chart extent if no visible points remain. Regression tests cover both modes,
-mixed and senescent-only input, unchanged payloads, retained prediction lines,
-and the empty-chart message when there are neither visible points nor predictions.
-Verification: 2,208 Elixir tests and 186 JavaScript tests pass; assets build and
-actual-browser checks pass for both charts, including absence of senescent
-symbols/legend entries and unchanged prediction/panel controls.
-
-Release still requires maintainer acceptance and a separately reviewed, explicit
-curated data batch with an import audit. A complete GF–iNat crosswalk and scheduled
-imports are not prerequisites; unresolved identities must stay out of the batch.
-The latitude-only reference is not locally validated weather, altitude or host
-phenology. Keep regional refinement and broader product ideas separate.
-
-### Seasonal-landmark observation selection
-
-Adam requested replacing the explorer's legacy Season index selection mode with
-the new landmark method. Seasonal landmark now projects a reference date ± days
-at a reference latitude across the shared 25–55°N clock. It no longer asks for a
-unitless seasind tolerance. The browser receives the exact bundled landmark rows
-through the Phenology context API; its small forward/inverse module mirrors the
-server arithmetic, replacing the former browser solar-index implementation.
-No new climate file, database field, import, per-species model or network service
-was added. The obsolete web-to-Math boundary exception was removed.
-
-The same window drives shading, table/species selection, count and CSV. Server
-CSV filtering recomputes the window from reference inputs, ignoring imported
-seasind. Circular shading uses clipped annual copies, including winter and
-whole-year windows. Invalid inputs select nothing with an inline message and
-HTTP 400 on export, rather than silently downloading all data. Clear selection
-resets the mode. Prediction inputs, contours, stage/event toggles and panel
-independence are unchanged. Selection retains plotted/stored DOY (including leap
-day 366); prediction normalization remains fixed non-leap. The one-day calendar
-distinction is documented rather than silently rewriting source fields.
-
-Actual-browser CSV comparison also found an existing species-summary bug:
-Enum.max compared Date structs structurally, sometimes calling an older year
-the latest observation. Using Date's chronological comparator fixes that column
-and its recency sorting; the CSV test now includes a cross-year counterexample.
-The apparent Clear-selection failure was an automation click beneath the fixed
-header; centering the button confirmed the ordinary click works without another
-application change.
-
-Verification: mix precommit passes with 2,212 tests and 84 standard exclusions;
-all 191 JavaScript tests pass. Tests cover bundled-reference/inverse parity,
-reference validation, exact circular boundaries, cross-latitude membership,
-whole-year selection, clipping, count/CSV controls and invalid-export behavior.
-Actual Edge checks compare every exported observation with the client-selected
-set for ten windows spanning D. quercuspalustris and Disholcaspis: spring, summer,
-winter, leap-year December 31 and whole-year selections. The winter Disholcaspis
-window selects 647 records; its table/count/species CSV agree. Prediction payloads
-remain identical, including across panel changes. The reusable local QA script
-is `Phenology/local-imports/release-review/landmark-selection.cjs`; no QA scripts
-or curated observation data were added to the application repository.
-
-### Explicit local study-data promotion (September 8 UTC)
-
-Adam requested carrying the saved study records into the localhost display.
-The port-4003 preview reads local PostgreSQL gallformers_dev, not the Windows
-CSV. Its read-only serving configuration was retained. A separate explicit
-one-shot import updated only the requested observation identities; application
-code, schema, production data and the canonical Windows SQLite were unchanged.
-
-The local display now contains 398 eburneum iNat records, 12 fumosa iNat records
-and 47 annotated pulchripennis leaf-gall records from the saved curated snapshots.
-This inserted 454 and updated three existing records. One of those updates
-corrected observation 129680592 from old GF 596 to eburneum GF 1728, confirmed by
-the saved curated iNat taxonomy. Five legacy fumosa Adult phases normalize to
-Free-living, with raw phases retained. Existing literature is preserved rather
-than reconstructing exact dates from undated historical bounds. Senescent rows
-are stored but remain unplotted, per the existing display contract.
-
-Audited import script: Phenology/local-imports/release-review/import_study_batch.py.
-Before-state, incoming rows, exclusions and manifest are preserved under
-Phenology/local-imports/display-study-20260908T053045940987Z. A locked transaction
-checks the complete before-state before applying changes. Post-import verification
-confirms all incoming fields and unchanged unrelated records. Repeating the dry
-run reports zero inserts/updates. Browser and CSV checks show 314 visible eburneum,
-19 fumosa and 32 pulchripennis observations, with working predictions and matching
-gall/explorer charts and no page errors.
-
-Outstanding: nine BugGuide adults and four iNat adults remain provisional,
-unassociated evidence, not silently assigned to pulchripennis agamic. The current
-schema requires a confirmed GF species ID, derives generation from that species,
-and supports only inat/literature sources. Adam was asked whether to add a separate
-candidate-adult section excluded from agamic predictions; this display decision
-is not yet answered or implemented. One additional pulchripennis gall (195310724)
-lacks usable date/location and remains in its source snapshot. The nine BugGuide
-records and corrected user metadata are safely retained in the external intake.
-This local data update is not a production release or an import bundled in PR 578.
-
-### Restore evidence emphasis in both plots
-
-Adam noticed viable dormant observations no longer stood out. The Shiny chart
-used full opacity for viable records or nonmissing insect life stages; that rule
-had not carried into the JS renderer. Both charts now give explicit viable or
-nonblank insect-stage records full fill/stroke opacity, leaving ordinary records
-at 0.25. Highlighted observations draw above ordinary points, while prediction
-boundaries remain above all points. Hover/mouseout preserves the distinction.
-Shapes, colors, point counts, filters, stored data and predictions are unchanged.
-A shared-renderer test covers both modes, viable developing/dormant records,
-larval/adult annotations, blank stages, hover restoration, draw order and redraw.
-Verification: 192 JavaScript tests and 2,212 Elixir tests pass (84 standard
-exclusions); assets build succeeds. Real-browser desktop/mobile checks verify
-evidence-based opacity in both views, foreground prediction layers, hover,
-independent controls, matching dates and no page errors or horizontal overflow.
-
-Follow-up: ordinary points now composite inside one SVG group at 0.25 opacity,
-with opaque child symbols, so overlaps cannot accumulate opacity and resemble
-the fully opaque evidence layer. Highlighted records occupy a separate group;
-both share the same renderer in explorer and gall views. Hover uses one temporary
-noninteractive opaque copy, removed on mouseout, below foreground predictions.
-No records are thinned or displaced. Tests verify group opacity, evidence ordering,
-hover cleanup and redraw while preserving all records.
-Verification: 192 JS tests and 2,212 Elixir tests pass (84 standard exclusions),
-and assets build passes. Actual Edge rasterization confirms 50 overlapping
-ordinary symbols have the same center pixel as one symbol, distinct from the
-opaque evidence symbol. Both views, hover, mobile layout and control independence
-pass the real-browser regression with no page errors.
+Maintain maintainer acceptance and an explicit audited curated batch as release
+gates. The migration creates empty tables. Complete GF–iNat mapping and scheduled
+imports are not required; unresolved identities must stay out of the batch.
+Curation tools, literature intake, regional models and local server setup remain
+outside this PR. Browser smoke scripts currently live in the local release-review
+directory; portability of those checks is still a review gap, not a CI guarantee.

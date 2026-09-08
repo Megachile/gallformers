@@ -6,79 +6,9 @@ defmodule GallformersWeb.PhenologyControllerTest do
   """
   use GallformersWeb.ConnCase, async: true
 
-  alias Gallformers.Phenology
+  import Gallformers.PhenologyFixtures
+
   alias Gallformers.Phenology.SeasonalClock
-  alias Gallformers.Repo
-  alias Gallformers.Species.Species
-  alias Gallformers.Taxonomy.Taxonomy
-
-  defp insert_gall(name) do
-    {:ok, sp} =
-      Repo.insert(%Species{name: name, taxoncode: "gall", datacomplete: false})
-
-    sp
-  end
-
-  defp insert_taxon(attrs) do
-    {:ok, node} =
-      Repo.insert(struct(Taxonomy, Map.put_new(attrs, :is_placeholder, false)))
-
-    node
-  end
-
-  defp link_taxon(species_id, taxonomy_id) do
-    Repo.insert_all("species_taxonomy", [
-      %{species_id: species_id, taxonomy_id: taxonomy_id}
-    ])
-  end
-
-  defp insert_gall_traits(species_id) do
-    Repo.insert_all("gall_traits", [%{species_id: species_id}])
-  end
-
-  defp insert_color(name) do
-    {1, [%{id: id}]} = Repo.insert_all("color", [%{color: name}], returning: [:id])
-    id
-  end
-
-  defp link_color(species_id, color_id) do
-    Repo.insert_all("gall_color", [%{species_id: species_id, color_id: color_id}])
-  end
-
-  defp insert_place(name, type) do
-    code = "zt-#{System.unique_integer([:positive])}"
-
-    {1, [%{id: id}]} =
-      Repo.insert_all("place", [%{name: name, type: type, code: code}], returning: [:id])
-
-    id
-  end
-
-  defp link_place_hierarchy(parent_id, child_id) do
-    Repo.insert_all("place_hierarchy", [%{parent_id: parent_id, place_id: child_id}])
-  end
-
-  defp link_gall_range(species_id, place_id) do
-    Repo.insert_all("gall_range", [
-      %{species_id: species_id, place_id: place_id, precision: "exact"}
-    ])
-  end
-
-  defp insert_obs(species_id, attrs) do
-    Map.merge(
-      %{
-        species_id: species_id,
-        source_type: "literature",
-        date: ~D[2024-06-15],
-        doy: 167,
-        latitude: 42.0,
-        longitude: -83.0,
-        phenophase: "maturing"
-      },
-      attrs
-    )
-    |> Phenology.create_observation()
-  end
 
   describe "GET /phenology/export.csv" do
     test "default (no display) returns the obs table CSV", %{conn: conn} do

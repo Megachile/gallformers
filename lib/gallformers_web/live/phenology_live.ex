@@ -234,7 +234,7 @@ defmodule GallformersWeb.PhenologyLive do
 
   # Species-list ordering. Display-only (never reloads obs): update the sort
   # key + direction, patch the URL, and let the render re-sort — the JS table
-  # re-sorts off the host's data-sort/-dir, the SSR fallback off species_rows/3.
+  # re-sorts off the host's data-sort/-dir.
   def handle_event("sort_species", %{"sort" => value} = params, socket) do
     key = PhenologyFilters.sort_from_param(value)
     dir = PhenologyFilters.sort_dir_from_param(params["dir"], key)
@@ -415,9 +415,6 @@ defmodule GallformersWeb.PhenologyLive do
   @doc false
   defdelegate generation_of(name), to: GallformersWeb.PhenologyChartData
 
-  defp format_obs_date(%Date{} = d), do: Date.to_iso8601(d)
-  defp format_obs_date(_), do: ""
-
   defp species_count(observations) do
     observations |> Enum.map(& &1.species_id) |> Enum.uniq() |> length()
   end
@@ -445,51 +442,11 @@ defmodule GallformersWeb.PhenologyLive do
   defp display_value(%{display_mode: :species_list}), do: "species"
   defp display_value(_), do: "predictions"
 
-  # Collapses the obs list to one row per species with obs count, day-of-year
-  # span, and latest-observation date attached, ordered by `sort`. Used by the
-  # species_list display mode (the JS table mirrors this ordering client-side).
-  defp species_rows(observations, sort, sort_dir) do
-    observations
-    |> Enum.group_by(&{&1.species_id, &1.species_name})
-    |> Enum.map(fn {{id, name}, obs} ->
-      %{
-        species_id: id,
-        name: name,
-        n_obs: length(obs),
-        last_date: obs |> Enum.map(& &1.date) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end)
-      }
-    end)
-    |> sort_species_rows(sort, sort_dir)
-  end
-
-  # Every column is sortable both ways. Name is the stable ascending tiebreaker
-  # (via a name-asc pre-pass) so equal values keep a predictable order.
-  defp sort_species_rows(rows, :name, dir), do: Enum.sort_by(rows, & &1.name, dir)
-
-  defp sort_species_rows(rows, :obs_count, dir),
-    do: rows |> Enum.sort_by(& &1.name) |> Enum.sort_by(& &1.n_obs, dir)
-
-  defp sort_species_rows(rows, :recency, dir),
-    do:
-      rows
-      |> Enum.sort_by(& &1.name)
-      |> Enum.sort_by(&(&1.last_date || ~D[0001-01-01]), {dir, Date})
-
-  # Header label for the species table's sortable columns — appends a direction
-  # arrow (▲ asc / ▼ desc) to whichever column is the active sort. The columns
-  # ARE the sort keys (the JS table makes these headers clickable), so no
-  # separate control exists.
-  defp sort_col_label(text, key, active, dir) when key == active, do: text <> sort_arrow(dir)
-  defp sort_col_label(text, _key, _active, _dir), do: text
-
-  defp sort_arrow(:asc), do: " ▲"
-  defp sort_arrow(:desc), do: " ▼"
-
   # Path for the CSV export endpoint, preserving the current filter state.
   # The brush selection (if any) is appended client-side by the
   # PhenologyCsvLink hook — see assets/js/hooks/phenology_csv_link.js.
   # The controller still honors the brush params when present.
-  defp export_path(filters, _selection) do
+  defp export_path(filters) do
     query = PhenologyFilters.to_query(filters)
     ~p"/phenology/export.csv?#{query}"
   end
@@ -1026,8 +983,8 @@ defmodule GallformersWeb.PhenologyLive do
                 <.link
                   id="phenology-csv-link"
                   phx-hook="PhenologyCsvLink"
-                  href={export_path(@filters, nil)}
-                  data-href-base={export_path(@filters, nil)}
+                  href={export_path(@filters)}
+                  data-href-base={export_path(@filters)}
                   class="text-xs text-gf-maroon underline"
                 >
                   Download CSV
@@ -1036,101 +993,18 @@ defmodule GallformersWeb.PhenologyLive do
             </div>
 
             <%= cond do %>
-              <% @filters.display_mode == :data_table -> %>
+              <% @filters.display_mode in [:data_table, :species_list] -> %>
                 <div
                   id="phenology-table-host"
                   phx-hook="PhenologyTable"
                   phx-update="ignore"
-                  data-mode="table"
-                  data-version={@obs_version}
-                  class="mt-3 max-h-[60vh] overflow-auto rounded-lg border border-gray-200 bg-white"
-                >
-                  <%!-- SSR / no-JS fallback only. The hook owns this DOM
-                        after mount and filters by brush in JS — see
-                        assets/js/hooks/phenology_table.js. --%>
-                  <.table
-                    id="phenology-obs-table"
-                    rows={@observations}
-                    variant="compact"
-                  >
-                    <:col :let={o} label="Species">
-                      <.link href={~p"/gall/#{o.species_id}"}>{o.species_name}</.link>
-                    </:col>
-                    <:col :let={o} label="Phenophase">{o.phenophase || "—"}</:col>
-                    <:col :let={o} label="Lifestage">{o.lifestage || "—"}</:col>
-                    <:col :let={o} label="Viability">{o.viability || "—"}</:col>
-                    <:col :let={o} label="Host">{o.host_species_name || "—"}</:col>
-                    <:col :let={o} label="DOY">{o.doy}</:col>
-                    <:col :let={o} label="Date">{format_obs_date(o.date)}</:col>
-                    <:col :let={o} label="Lat">{format_coord(o.latitude)}</:col>
-                    <:col :let={o} label="Lng">{format_coord(o.longitude)}</:col>
-                    <:col :let={o} label="Source">
-                      <%= if valid_url?(o.source_url) do %>
-                        <a href={o.source_url} target="_blank" rel="noopener">link</a>
-                      <% else %>
-                        —
-                      <% end %>
-                    </:col>
-                    <:col :let={o} label="Page">
-                      <%= if valid_url?(o.page_url) do %>
-                        <a
-                          href={o.page_url}
-                          target="_blank"
-                          rel="noopener"
-                          class="inline-flex items-center gap-1"
-                          title={if inat_observation?(o.page_url), do: "Open iNaturalist observation"}
-                        >
-                          <%= if inat_observation?(o.page_url) do %>
-                            iNat
-                          <% else %>
-                            link
-                          <% end %>
-                        </a>
-                      <% else %>
-                        —
-                      <% end %>
-                    </:col>
-                  </.table>
-                </div>
-              <% @filters.display_mode == :species_list -> %>
-                <div
-                  id="phenology-table-host"
-                  phx-hook="PhenologyTable"
-                  phx-update="ignore"
-                  data-mode="species"
+                  data-mode={display_value(@filters)}
                   data-version={@obs_version}
                   data-sort={to_string(@filters.sort)}
                   data-sort-dir={to_string(@filters.sort_dir)}
                   class="mt-3 max-h-[60vh] overflow-auto rounded-lg border border-gray-200 bg-white"
                 >
-                  <%!-- SSR / no-JS fallback only — see comment on the
-                        obs-table host above. --%>
-                  <.table
-                    id="phenology-species-table"
-                    rows={species_rows(@observations, @filters.sort, @filters.sort_dir)}
-                    variant="compact"
-                  >
-                    <:col
-                      :let={row}
-                      label={sort_col_label("Species", :name, @filters.sort, @filters.sort_dir)}
-                    >
-                      <.link href={~p"/gall/#{row.species_id}"}>{row.name}</.link>
-                    </:col>
-                    <:col
-                      :let={row}
-                      label={
-                        sort_col_label("Observations", :obs_count, @filters.sort, @filters.sort_dir)
-                      }
-                    >
-                      {row.n_obs}
-                    </:col>
-                    <:col
-                      :let={row}
-                      label={sort_col_label("Latest", :recency, @filters.sort, @filters.sort_dir)}
-                    >
-                      {format_obs_date(row.last_date)}
-                    </:col>
-                  </.table>
+                  <noscript>Use Download CSV to view the selected data without JavaScript.</noscript>
                 </div>
               <% true -> %>
                 <%= if @predictions != [] do %>
@@ -1152,19 +1026,6 @@ defmodule GallformersWeb.PhenologyLive do
     </Layouts.app>
     """
   end
-
-  defp inat_observation?(url) when is_binary(url) do
-    uri = URI.parse(url)
-
-    uri.scheme in ["http", "https"] and uri.host in ["inaturalist.org", "www.inaturalist.org"] and
-      Regex.match?(~r{^/observations/\d+(?:/|$)}, uri.path || "")
-  end
-
-  defp inat_observation?(_), do: false
-
-  defp format_coord(c) when is_float(c), do: :erlang.float_to_binary(c, [:compact, decimals: 3])
-  defp format_coord(c) when is_number(c), do: to_string(c)
-  defp format_coord(_), do: ""
 
   defp format_target_lat(lat) when is_float(lat),
     do: :erlang.float_to_binary(abs(lat), [:compact, decimals: 1])

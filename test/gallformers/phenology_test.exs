@@ -5,91 +5,15 @@ defmodule Gallformers.PhenologyTest do
   """
   use Gallformers.DataCase, async: true
 
+  import Gallformers.PhenologyFixtures
+
   alias Gallformers.Phenology
   alias Gallformers.Phenology.Observation
   alias Gallformers.Species.Species
-  alias Gallformers.Taxonomy.Taxonomy
-
-  defp create_gall_species(name \\ "Acraspis testica (agamic)") do
-    {:ok, sp} =
-      Repo.insert(%Species{name: name, taxoncode: "gall", datacomplete: false})
-
-    sp
-  end
-
-  # Insert a taxonomy node directly (bypassing the changeset so tests can build
-  # arbitrary trees without satisfying every create-time validation).
-  defp insert_taxon(attrs) do
-    {:ok, node} =
-      Repo.insert(struct(Taxonomy, Map.put_new(attrs, :is_placeholder, false)))
-
-    node
-  end
-
-  # Link a species to a taxonomy node via the species_taxonomy join table.
-  defp link_taxon(species_id, taxonomy_id) do
-    Repo.insert_all("species_taxonomy", [
-      %{species_id: species_id, taxonomy_id: taxonomy_id}
-    ])
-  end
-
-  # gall_traits is the 1:1 extension row the ID-tool filter engine inner-joins
-  # on; a gall must have one to match any trait filter.
-  defp insert_gall_traits(species_id) do
-    Repo.insert_all("gall_traits", [%{species_id: species_id}])
-  end
-
-  defp insert_filter_field(table, column, name) do
-    {1, [%{id: id}]} = Repo.insert_all(table, [%{column => name}], returning: [:id])
-    id
-  end
-
-  defp link_color(species_id, color_id) do
-    Repo.insert_all("gall_color", [%{species_id: species_id, color_id: color_id}])
-  end
-
-  defp link_shape(species_id, shape_id) do
-    Repo.insert_all("gall_shape", [%{species_id: species_id, shape_id: shape_id}])
-  end
-
-  # Synthetic place with a guaranteed-unique code (the test-seed DB already
-  # ships real places like US / California, whose codes are unique-constrained).
-  defp insert_place(name, type) do
-    code = "zt-#{System.unique_integer([:positive])}"
-
-    {1, [%{id: id}]} =
-      Repo.insert_all("place", [%{name: name, type: type, code: code}], returning: [:id])
-
-    id
-  end
-
-  defp link_place_hierarchy(parent_id, child_id) do
-    Repo.insert_all("place_hierarchy", [%{parent_id: parent_id, place_id: child_id}])
-  end
-
-  defp link_gall_range(species_id, place_id) do
-    Repo.insert_all("gall_range", [
-      %{species_id: species_id, place_id: place_id, precision: "exact"}
-    ])
-  end
-
-  defp valid_attrs(species_id, overrides \\ %{}) do
-    Map.merge(
-      %{
-        species_id: species_id,
-        source_type: "literature",
-        date: ~D[2024-06-15],
-        doy: 167,
-        latitude: 42.0,
-        longitude: -83.0
-      },
-      overrides
-    )
-  end
 
   describe "create_observation/1" do
     test "creates a literature observation with valid attrs" do
-      sp = create_gall_species()
+      sp = insert_gall()
       attrs = valid_attrs(sp.id, %{phenophase: "maturing", site: "Ann Arbor"})
 
       assert {:ok, %Observation{} = obs} = Phenology.create_observation(attrs)
@@ -107,7 +31,7 @@ defmodule Gallformers.PhenologyTest do
     end
 
     test "rejects invalid source_type" do
-      sp = create_gall_species()
+      sp = insert_gall()
       attrs = valid_attrs(sp.id, %{source_type: "twitter"})
 
       assert {:error, changeset} = Phenology.create_observation(attrs)
@@ -115,7 +39,7 @@ defmodule Gallformers.PhenologyTest do
     end
 
     test "requires inat_id when source_type is inat" do
-      sp = create_gall_species()
+      sp = insert_gall()
       attrs = valid_attrs(sp.id, %{source_type: "inat"})
 
       assert {:error, changeset} = Phenology.create_observation(attrs)
@@ -123,7 +47,7 @@ defmodule Gallformers.PhenologyTest do
     end
 
     test "rejects inat_id when source_type is literature" do
-      sp = create_gall_species()
+      sp = insert_gall()
       attrs = valid_attrs(sp.id, %{source_type: "literature", inat_id: 12_345})
 
       assert {:error, changeset} = Phenology.create_observation(attrs)
@@ -131,7 +55,7 @@ defmodule Gallformers.PhenologyTest do
     end
 
     test "accepts an iNat observation with an inat_id" do
-      sp = create_gall_species()
+      sp = insert_gall()
       attrs = valid_attrs(sp.id, %{source_type: "inat", inat_id: 987_654})
 
       assert {:ok, obs} = Phenology.create_observation(attrs)
@@ -139,7 +63,7 @@ defmodule Gallformers.PhenologyTest do
     end
 
     test "rejects out-of-range latitude / longitude / doy" do
-      sp = create_gall_species()
+      sp = insert_gall()
 
       for {field, bad} <- [latitude: 95.0, longitude: -200.0, doy: 400] do
         attrs = valid_attrs(sp.id, %{field => bad})
@@ -149,7 +73,7 @@ defmodule Gallformers.PhenologyTest do
     end
 
     test "enforces unique inat_id" do
-      sp = create_gall_species()
+      sp = insert_gall()
       attrs = valid_attrs(sp.id, %{source_type: "inat", inat_id: 555})
 
       assert {:ok, _} = Phenology.create_observation(attrs)
@@ -160,7 +84,7 @@ defmodule Gallformers.PhenologyTest do
 
   describe "list_observations_for_species/1" do
     test "returns observations ordered by date" do
-      sp = create_gall_species()
+      sp = insert_gall()
 
       {:ok, late} =
         Phenology.create_observation(valid_attrs(sp.id, %{date: ~D[2024-08-01], doy: 214}))
@@ -172,8 +96,8 @@ defmodule Gallformers.PhenologyTest do
     end
 
     test "ignores observations from other species" do
-      sp1 = create_gall_species("Acraspis a (agamic)")
-      sp2 = create_gall_species("Acraspis b (agamic)")
+      sp1 = insert_gall("Acraspis a (agamic)")
+      sp2 = insert_gall("Acraspis b (agamic)")
 
       {:ok, _} = Phenology.create_observation(valid_attrs(sp1.id))
       {:ok, _} = Phenology.create_observation(valid_attrs(sp2.id))
@@ -185,7 +109,7 @@ defmodule Gallformers.PhenologyTest do
 
   describe "list_observations_needing_review/0" do
     test "returns observations where raw and processed phenophase disagree" do
-      sp = create_gall_species()
+      sp = insert_gall()
 
       {:ok, agree} =
         Phenology.create_observation(
@@ -205,9 +129,9 @@ defmodule Gallformers.PhenologyTest do
 
   describe "search_observations/1" do
     setup do
-      sp_acraspis = create_gall_species("Acraspis erinacei (agamic)")
-      sp_aulacidea = create_gall_species("Aulacidea solidaginis (sexgen)")
-      sp_andricus = create_gall_species("Andricus quercuscalifornicus (agamic)")
+      sp_acraspis = insert_gall("Acraspis erinacei (agamic)")
+      sp_aulacidea = insert_gall("Aulacidea solidaginis (sexgen)")
+      sp_andricus = insert_gall("Andricus quercuscalifornicus (agamic)")
 
       {:ok, _} =
         Phenology.create_observation(valid_attrs(sp_acraspis.id, %{phenophase: "developing"}))
@@ -314,9 +238,9 @@ defmodule Gallformers.PhenologyTest do
       tephritidae = insert_taxon(%{name: "Tephritidae", type: "family", description: "Fly"})
       eurosta = insert_taxon(%{name: "Eurosta", type: "genus", parent_id: tephritidae.id})
 
-      sp_acraspis = create_gall_species("Acraspis erinacei (agamic)")
-      sp_aulacidea = create_gall_species("Aulacidea nabali (sexgen)")
-      sp_eurosta = create_gall_species("Eurosta solidaginis")
+      sp_acraspis = insert_gall("Acraspis erinacei (agamic)")
+      sp_aulacidea = insert_gall("Aulacidea nabali (sexgen)")
+      sp_eurosta = insert_gall("Eurosta solidaginis")
       link_taxon(sp_acraspis.id, acraspis.id)
       link_taxon(sp_aulacidea.id, aulacidea.id)
       link_taxon(sp_eurosta.id, eurosta.id)
@@ -407,9 +331,9 @@ defmodule Gallformers.PhenologyTest do
       ball = insert_filter_field("shape", :shape, "test-ball")
 
       # red + ball ; red only ; green only — each a gall with a gall_traits row
-      sp_red_ball = create_gall_species("Acraspis redball (agamic)")
-      sp_red = create_gall_species("Acraspis redonly (agamic)")
-      sp_green = create_gall_species("Andricus greeny (agamic)")
+      sp_red_ball = insert_gall("Acraspis redball (agamic)")
+      sp_red = insert_gall("Acraspis redonly (agamic)")
+      sp_green = insert_gall("Andricus greeny (agamic)")
 
       for sp <- [sp_red_ball, sp_red, sp_green], do: insert_gall_traits(sp.id)
       link_color(sp_red_ball.id, red)
@@ -486,10 +410,10 @@ defmodule Gallformers.PhenologyTest do
       link_place_hierarchy(usa, fl)
       link_place_hierarchy(canada, on)
 
-      sp_ca = create_gall_species("Andricus californicus (agamic)")
-      sp_tx = create_gall_species("Belonocnema texana (agamic)")
-      sp_on = create_gall_species("Neuroterus ontario (sexgen)")
-      sp_fl = create_gall_species("Disholcaspis floridana (agamic)")
+      sp_ca = insert_gall("Andricus californicus (agamic)")
+      sp_tx = insert_gall("Belonocnema texana (agamic)")
+      sp_on = insert_gall("Neuroterus ontario (sexgen)")
+      sp_fl = insert_gall("Disholcaspis floridana (agamic)")
       link_gall_range(sp_ca.id, ca)
       link_gall_range(sp_tx.id, tx)
       link_gall_range(sp_on.id, on)

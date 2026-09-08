@@ -69,7 +69,10 @@ defmodule GallformersWeb.PhenologyComponentsTest do
     record = Map.put(developing(196), :page_url, "https://www.inaturalist.org/observations/123")
     {:ok, predictions} = Phenology.predict([record], 30, [:onset])
     html = render_component(&PhenologyComponents.prediction_results/1, predictions: predictions)
-    assert html =~ "around Jul 15"
+
+    assert text_at(html, "[data-event='onset'] p:first-child") ==
+             "Fresh galls may start appearing around Jul 15."
+
     refute html =~ "Jul 15–Jul 15"
     refute html =~ "percentile"
     assert html =~ "Earliest recorded development, latitude-adjusted"
@@ -94,6 +97,73 @@ defmodule GallformersWeb.PhenologyComponentsTest do
     html = render_component(&PhenologyComponents.prediction_results/1, predictions: predictions)
     refute html =~ "Anchor record"
     assert html =~ "Jul 15, 2023 at 30.0°N"
+  end
+
+  test "answers lead with sentences while methods stay in one closed disclosure" do
+    records = [
+      Map.put(developing(196), :page_url, "https://www.inaturalist.org/observations/123"),
+      %{developing(355) | phenophase: "maturing"},
+      %{developing(5) | phenophase: "Free-living"},
+      Map.put(developing(250), :viability, "viable")
+    ]
+
+    {:ok, predictions} = Phenology.predict(records, 30, [:onset, :emergence, :rearing])
+    html = render_component(&PhenologyComponents.prediction_results/1, predictions: predictions)
+    document = LazyHTML.from_document(html)
+    assert length(LazyHTML.query(document, "details") |> Enum.to_list()) == 1
+    assert LazyHTML.query(document, "details[open]") |> Enum.empty?()
+    assert text_at(html, "summary") == "Evidence & methods"
+
+    assert text_at(html, "[data-event='emergence'] p:first-child") ==
+             "Look for emerging or active adults around Dec 21–Jan 5."
+
+    assert text_at(html, "[data-event='rearing'] p:first-child") ==
+             "Try collecting galls for rearing around Sep 7."
+
+    assert text_at(html, "[data-event='onset'] strong") == "Jul 15"
+    assert text_at(html, "[data-event='emergence'] strong") == "Dec 21–Jan 5"
+    refute text_at(html, "[data-event]") =~ "Middle 80%"
+    refute text_at(html, "[data-event]") =~ "median"
+    refute text_at(html, "[data-event]") =~ "latitude-adjusted"
+    refute text_at(html, "[data-event]") =~ "Anchor record"
+    assert text_at(html, "[data-event]") =~ "Few records"
+    assert text_at(html, "[data-event]") =~ "Limited latitude coverage"
+    assert text_at(html, "details") =~ "middle 50%"
+    assert text_at(html, "details") =~ "Middle 80%"
+    assert text_at(html, "details") =~ "median"
+    assert text_at(html, "details") =~ "Anchor record"
+  end
+
+  test "generation headings group answers without changing their dates" do
+    records =
+      for name <- ["Example (agamic)", "Example (sexgen)", "Example"] do
+        %{developing(196) | species_name: name}
+      end
+
+    {:ok, predictions} = Phenology.predict(records, 30, [:onset])
+    html = render_component(&PhenologyComponents.prediction_results/1, predictions: predictions)
+
+    for {generation, label} <- [
+          agamic: "Agamic generation",
+          sexgen: "Sexual generation",
+          unknown: "Generation unspecified"
+        ] do
+      assert html =~ label
+      assert text_at(html, "[data-generation='#{generation}'] strong") == "Jul 15"
+    end
+
+    empty = render_component(&PhenologyComponents.prediction_results/1, predictions: [])
+    refute empty =~ "<details"
+    refute empty =~ "data-event"
+  end
+
+  defp text_at(html, selector) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query(selector)
+    |> LazyHTML.text()
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
   end
 
   test "warnings distinguish few records, narrow latitude coverage and extrapolation" do

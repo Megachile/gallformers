@@ -356,6 +356,31 @@ full-width layout, shared dates and independent event/stage/panel controls.
 Dialyzer reports zero errors, and all 184 JavaScript tests pass. No observation
 data was modified; the retired model and tests were removed only after archival.
 
+### Sentence-first prediction summaries
+
+Adam found the date outputs difficult to scan because method and evidence
+metadata competed with the answer. Both displays now use the same condensed
+sentence-first result component, grouped by generation. Dates are emphasized:
+“Fresh galls may start appearing around …”, “Look for emerging or active adults
+around …”, and “Try collecting galls for rearing around …”. These remain estimates,
+not promises of presence, viability or true onset.
+
+Record counts, the onset anchor/source, percentile context and general model
+limitations move into one native, closed-by-default “Evidence & methods”
+disclosure, reusing the site's details/summary pattern without new JS or server
+state. Few-record, narrow-coverage and extrapolation warnings remain visible
+beside the specific answer. Single-date windows no longer repeat the same date.
+Chart legends are shortened to line-style meanings. Model/data, full-width chart
+layout, event toggles and below-chart panel selection are unchanged.
+
+Verification: `mix precommit` passes with 2,208 tests and 84 standard exclusions;
+Dialyzer reports zero errors; assets build succeeds. New component tests cover
+all three sentences, winter and single-date output, generation grouping, retained
+warnings and closed method details. Actual Edge checks confirm keyboard opening
+and closing of the disclosure without changing plot curves, mobile/half-screen
+layout, exact agreement between gall/explorer outputs and all existing controls.
+No observation data was modified.
+
 Release still requires maintainer acceptance and a separately reviewed, explicit
 curated data batch with an import audit. A complete GF–iNat crosswalk and scheduled
 imports are not prerequisites; unresolved identities must stay out of the batch.

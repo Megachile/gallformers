@@ -893,9 +893,7 @@ defmodule GallformersWeb.PhenologyLive do
             />
             <div class="mt-3">
               <p :if={@predictions != []} class="text-xs text-gray-600 mb-2">
-                Solid line = onset (earliest recorded development, latitude-adjusted);
-                dashed = emergence; dotted = viable collections. Emergence and collection bands
-                show the middle 50%, with a lighter middle 80%. These are not confidence intervals.
+                Solid: fresh gall onset. Dashed: emergence. Dotted: viable collections.
               </p>
               <%!-- Display-only selection lens (port of the doyCalc "Selection
                     mode"). Always shown under the chart (like the Shiny
@@ -1165,9 +1163,6 @@ defmodule GallformersWeb.PhenologyLive do
                       )}
                     </div>
                     <PhenologyComponents.prediction_results predictions={@predictions} />
-                    <p class="mt-2 text-xs text-gray-500">
-                      Latitude-only estimate (25–55°N); no elevation, host or year adjustment.
-                    </p>
                   </div>
                 <% end %>
             <% end %>

@@ -60,6 +60,14 @@ latitude input and shared date summary sit below it, rather than taking half
 the available plot width. The chart remains lazy-loaded and uses the explorer's
 plotting code in read-only selection mode.
 
+Both views present short, action-oriented sentences grouped by generation, with
+the predicted date or window emphasized. One closed-by-default “Evidence &
+methods” disclosure contains the source anchor, record counts, percentile context
+and model limitations. Few-record and latitude-coverage warnings remain visible
+beside the affected answer. A single-date window is printed once; winter windows
+retain their December–January order. This is presentation only: chart contours,
+thresholds and selected-event behavior are unchanged.
+
 Emergence pools maturing and Free-living phases (not
 perimature or enclosed Adult annotations). Viable collections require explicit
 `viability == "viable"`, regardless of phenophase. Those events show q25–q75,

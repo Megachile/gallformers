@@ -50,8 +50,16 @@ defmodule GallformersWeb.PhenologyIntegrationTest do
 
     {:ok, compact, _} = live(conn, ~p"/gall/#{sp.id}")
     refute has_element?(compact, "#gall-phenology-content")
+    refute has_element?(compact, "#gall-phenology-chart")
     compact |> element("#toggle-phenology") |> render_click()
     assert has_element?(compact, "#gall-phenology-content")
+
+    assert has_element?(
+             compact,
+             "#gall-phenology-chart[data-selection-enabled='false'][data-predictions='[]']"
+           )
+
+    assert render(compact) =~ "4 literature"
     compact |> form("#gall-phenology-latitude", target_lat: "40") |> render_change()
     compact_windows = windows(compact)
     assert length(compact_windows) == 3
@@ -60,6 +68,7 @@ defmodule GallformersWeb.PhenologyIntegrationTest do
       live(conn, ~p"/phenology?species_id=#{sp.id}&lat=40&events=onset,emergence,rearing")
 
     assert windows(explorer) == compact_windows
+    assert plot_predictions(compact, "#gall-phenology-chart") == plot_predictions(explorer)
     refute render(explorer) =~ other.name
 
     render_patch(explorer, ~p"/phenology?species_id=#{sp.id}&display=table")
@@ -71,15 +80,16 @@ defmodule GallformersWeb.PhenologyIntegrationTest do
     assert windows(compact) == compact_windows
     compact |> form("#gall-phenology-latitude", target_lat: "60") |> render_change()
     assert windows(compact) == []
+    assert has_element?(compact, "#gall-phenology-chart[data-predictions='[]']")
     assert render(compact) =~ "25–55"
   end
 
-  defp plot_predictions(view) do
+  defp plot_predictions(view, selector \\ "#phenology-chart") do
     [encoded] =
       view
       |> render()
       |> LazyHTML.from_document()
-      |> LazyHTML.query("#phenology-chart")
+      |> LazyHTML.query(selector)
       |> LazyHTML.attribute("data-predictions")
 
     Jason.decode!(encoded)

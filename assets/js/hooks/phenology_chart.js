@@ -54,6 +54,7 @@ export default {
       }
     })
     this._resizeObserver.observe(this.el)
+    if (this.el.dataset.selectionEnabled === 'false') return
     // The chrome hook's Clear-selection button dispatches this event when
     // clicked. We clear the SVG rect (the moveBrush('') below uses the
     // restoringBrush flag so the d3 end handler doesn't echo) and then
@@ -86,7 +87,7 @@ export default {
   // roundtrip on brush gestures.
   updated() {
     const pointsRaw = this.el.dataset.points || '[]'
-    if (pointsRaw !== this._lastPointsRaw || this.el.dataset.latRange !== this._lastLatRange) {
+    if (this.el.dataset.selectionEnabled === 'false' || pointsRaw !== this._lastPointsRaw || this.el.dataset.latRange !== this._lastLatRange) {
       this.renderChart()
     } else {
       this.drawPredictions()
@@ -95,19 +96,21 @@ export default {
 
   renderChart(preserveBrush = false) {
     const pointsRaw = this.el.dataset.points || '[]'
-    const points = JSON.parse(pointsRaw)
+    const points = JSON.parse(pointsRaw).filter(p => Number.isFinite(p.lat) &&
+      p.lat >= -90 && p.lat <= 90 && Number.isFinite(p.doy) && p.doy >= 1 && p.doy <= 366)
+    const selectionEnabled = this.el.dataset.selectionEnabled !== 'false'
     this._lastPointsRaw = pointsRaw
     this._lastLatRange = this.el.dataset.latRange
     this._lastWidth = this.el.clientWidth
     this._lastHeight = this.el.clientHeight
-    const previousBrush = preserveBrush ? phenologyState.brush : null
+    const previousBrush = selectionEnabled && preserveBrush ? phenologyState.brush : null
 
     // A full chart rebuild only happens on initial mount or when the
     // underlying obs set changed (filter applied). The LV wipes its
     // server-side selection on filter changes, so any prior client-side
     // brush is no longer meaningful — drop it so the table hook re-renders
     // the new full set.
-    if (!preserveBrush) phenologyState.setBrush(null)
+    if (selectionEnabled && !preserveBrush) phenologyState.setBrush(null)
 
     select(this.el).selectAll('*').remove()
     this._moveBrush = null
@@ -157,7 +160,10 @@ export default {
         .style('z-index', '1000')
 
     const x = scaleLinear().domain([-5, 371]).range([0, width])
-    const latExtent = this.el.dataset.latRange ? JSON.parse(this.el.dataset.latRange) : extent(points, d => d.lat)
+    const targetLats = selectionEnabled ? [] : JSON.parse(this.el.dataset.predictions || '[]')
+      .map(p => p.target_lat).filter(Number.isFinite)
+    const latExtent = this.el.dataset.latRange ? JSON.parse(this.el.dataset.latRange)
+      : extent([...points.map(p => p.lat), ...targetLats])
     const latPad = Math.max(1, (latExtent[1] - latExtent[0]) * 0.05)
     const y = scaleLinear().domain([latExtent[0] - latPad, latExtent[1] + latPad]).nice().range([height, 0])
 
@@ -209,9 +215,9 @@ export default {
         phenologyState.setBrush(bounds)
       })
 
-    const brushG = svg.append('g')
+    const brushG = selectionEnabled ? svg.append('g')
       .attr('class', 'brush')
-      .call(chartBrush)
+      .call(chartBrush) : null
 
     // Selection overlay for the Date-range / Season-index modes, drawn above
     // the brush background but below the points (so points stay visible on
@@ -222,9 +228,9 @@ export default {
     this._width = width
     this._height = height
     this._brushG = brushG
-    this._overlayG = svg.append('g')
+    this._overlayG = selectionEnabled ? svg.append('g')
       .attr('class', 'selection-overlay')
-      .attr('pointer-events', 'none')
+      .attr('pointer-events', 'none') : null
     this._predictionG = svg.append('g')
       .attr('class', 'prediction-overlay')
       .attr('pointer-events', 'none')
@@ -237,6 +243,7 @@ export default {
     // Clear-selection listener). `restoringBrush` suppresses the d3 "end"
     // event the move below would otherwise emit.
     const moveBrush = (bounds) => {
+      if (!brushG) return
       restoringBrush = true
       try {
         brushG.call(chartBrush.move, bounds ? [

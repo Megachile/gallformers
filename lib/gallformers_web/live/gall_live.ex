@@ -162,6 +162,8 @@ defmodule GallformersWeb.GallLive do
            phenology_observations: nil,
            phenology_open: false,
            phenology_predictions: [],
+           phenology_points_json: "[]",
+           phenology_sources: %{},
            phenology_notice: "Enter a latitude to estimate timing (25–55°N).",
            phenology_target_lat: nil,
            common_names: common_names,
@@ -224,8 +226,7 @@ defmodule GallformersWeb.GallLive do
           Phenology.predict(
             socket.assigns.phenology_observations || [],
             latitude,
-            [:onset, :emergence, :rearing],
-            contours: false
+            [:onset, :emergence, :rearing]
           )
 
         _ ->
@@ -267,16 +268,23 @@ defmodule GallformersWeb.GallLive do
   end
 
   def handle_event("toggle_phenology", _params, socket) do
-    observations =
-      socket.assigns.phenology_observations ||
-        Phenology.search_observations(%{species_id: socket.assigns.gall.id})
+    socket =
+      if socket.assigns.phenology_observations do
+        socket
+      else
+        observations = Phenology.search_observations(%{species_id: socket.assigns.gall.id})
+
+        assign(socket,
+          phenology_observations: observations,
+          phenology_points_json:
+            observations |> GallformersWeb.PhenologyChartData.points() |> Jason.encode!(),
+          phenology_sources: Enum.frequencies_by(observations, & &1.source_type)
+        )
+      end
 
     {:noreply,
      socket
-     |> assign(
-       phenology_open: not socket.assigns.phenology_open,
-       phenology_observations: observations
-     )
+     |> assign(phenology_open: not socket.assigns.phenology_open)
      |> update_phenology_predictions()}
   end
 
@@ -647,6 +655,8 @@ defmodule GallformersWeb.GallLive do
               predictions={@phenology_predictions}
               notice={@phenology_notice}
               target_lat={@phenology_target_lat}
+              points_json={@phenology_points_json}
+              sources={@phenology_sources}
             />
           </div>
 

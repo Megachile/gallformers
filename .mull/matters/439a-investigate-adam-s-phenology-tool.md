@@ -228,6 +228,70 @@ records rather than the August q05; the several same-date/location observations
 count as one replicate. Tests cover normalized rather than raw-date ranking,
 winter onset, later-record dominance, reproducible anchors and warning cutoffs.
 
+### Northern-onset diagnosis after review
+
+Adam reports that the new D. quercuspalustris onset is implausibly early in the
+north. Read-only audit of the current snapshot supports a latitude-transfer
+problem: one March 15, 2023 record at 34.551°N (iNat 151319576) sets the entire
+curve. At 40°N it predicts April 2, versus April 14 for the earliest record
+within ±2° after clock normalization (393 date/location records, ten years).
+At 45°N it predicts April 13 versus May 10 (55 records, seven years). The prior
+global q05 gave April 23 and May 7 respectively. These are descriptive comparisons
+of positive records, not absence-based proof of biological onset. Coverage near
+48°N is only one record; there are none within ±2° of 50°N.
+
+A total-count switch from minimum to q05 is not a sufficient fix: D. cinerosa
+has 282 developing records, yet its informative July 15 anchor is swamped by
+late records and q05 moves to August. Proposed next step, not implemented or
+validated: keep the shared clock as the sparse-data fallback, but allow a smooth
+latitude-dependent correction from independent local leading-edge evidence where
+available. Local onset information, rather than total developing observations,
+must control the weight. Credible early records constrain their own local timing,
+not every latitude; local first-positive dates can still be delayed by missing
+early sampling. Test across years/locations and retain the cinerosa case as a
+guard against late-tail contamination. No serving-model or database changes were
+made during this diagnosis.
+
+### Local onset pilot and embedded gall chart
+
+Implemented the requested evidence-weighted correction in a separate pure
+`Phenology.Onset` module, without per-species files or climate downloads. One-degree
+grid points use ±1° neighborhoods; earliest normalized development supplies the
+local edge, and only the following fourteen days supply support. Count unique
+quarter-degree locality/year combinations, cap support at two per year, subtract
+one, and shrink with `s / (s + 2)`. Isolated local edges cannot force corrections.
+Smooth, bounded interpolation retains the earliest anchor locally. Beyond the
+supported region, continue the clock from the nearest corrected phase rather
+than bending back to the original southern date. Distant support is warned about,
+not displayed as a confidence probability. All constants are provisional pilot
+heuristics, not ecological invariants.
+
+Full-data DQP onset at 40°N is now April 11 (fallback April 2), and at 45°N May 8
+(fallback April 13). Cinerosa at 30°N remains July 15. Cross-year and buffered
+latitude-band tests improve against first-positive proxies for DQP, Eurosta,
+quercusoperator sexual and quercushirta agamic. Cinerosa's three spatial holdouts
+worsen (18.4 → 28.6 days mean absolute error), despite retaining the full-data
+July anchor; this is not ready to claim universal validation. No parameters were
+tuned on the held-out folds. Full curve generation measured roughly 1–23 ms for
+the checked cohorts. The application snapshot has no developing records matching
+eburne; this benchmark did not import data to fill that gap. Detailed read-only
+audit scripts/results remain in Phenology/local-imports/release-review.
+
+Gall pages now embed the same chart hook and shared point payload used by the
+explorer, with a read-only selection mode so they do not mutate explorer brush
+state. Observations and source totals appear on expansion before a latitude is
+entered. Latitude entry adds the shared event lines and dates; the compact plot
+includes the requested latitude, including extrapolation cases. Evidence/payload
+loading remains lazy and cached. Source-count breakdown is restored. No old
+stage-duration model or second rendering implementation was introduced.
+
+Verification for this follow-up: `mix precommit` passes (2,213 tests, 84 standard
+exclusions), Dialyzer reports zero errors, 184 JavaScript tests pass, and assets
+build succeeds. The read-only real-data check retains all 36 emergence/rearing
+comparisons. Edge browser checks cover compact chart before/after latitude entry,
+desktop/mobile sizing, shared prediction arrays, absent brush controls on the
+compact chart, source totals, and existing explorer toggle/panel independence.
+
 Release still requires maintainer acceptance and a separately reviewed, explicit
 curated data batch with an import audit. A complete GF–iNat crosswalk and scheduled
 imports are not prerequisites; unresolved identities must stay out of the batch.

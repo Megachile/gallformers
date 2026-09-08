@@ -409,42 +409,10 @@ defmodule GallformersWeb.PhenologyLive do
   # The JS-rendered data table and species list both read from this same
   # array, so it carries every field they need to render (host name,
   # longitude, source/page URLs, species_id for the gall-page link).
-  def chart_points(observations) do
-    Enum.map(observations, fn o ->
-      %{
-        id: o.id,
-        species_id: o.species_id,
-        species_name: o.species_name,
-        host_species_name: o.host_species_name,
-        doy: o.doy,
-        seasind: o.seasind,
-        date: format_obs_date(o.date),
-        lat: o.latitude,
-        lng: o.longitude,
-        generation: generation_of(o.species_name),
-        phenophase: o.phenophase || "(none)",
-        lifestage: o.lifestage || "",
-        viability: o.viability || "",
-        source_type: o.source_type,
-        source_url: o.source_url,
-        page_url: o.page_url,
-        site: o.site || "",
-        state: o.state || "",
-        country: o.country || ""
-      }
-    end)
-  end
+  defdelegate chart_points(observations), to: GallformersWeb.PhenologyChartData, as: :points
 
   @doc false
-  def generation_of(name) when is_binary(name) do
-    cond do
-      String.contains?(name, "(sexgen)") -> "sexgen"
-      String.contains?(name, "(agamic)") -> "agamic"
-      true -> "unknown"
-    end
-  end
-
-  def generation_of(_), do: "unknown"
+  defdelegate generation_of(name), to: GallformersWeb.PhenologyChartData
 
   defp format_obs_date(%Date{} = d), do: Date.to_iso8601(d)
   defp format_obs_date(_), do: ""
@@ -917,19 +885,15 @@ defmodule GallformersWeb.PhenologyLive do
               No observations match these filters.
             </div>
           <% true -> %>
-            <div
+            <PhenologyComponents.chart
               id="phenology-chart"
-              phx-hook="PhenologyChart"
-              phx-update="ignore"
-              data-points={@chart_points_json}
-              data-lat-range={Jason.encode!(@chart_lat_range)}
-              data-predictions={Jason.encode!(@predictions)}
-              class="relative h-[540px] rounded-lg border border-gray-200 bg-white"
-            >
-            </div>
+              points_json={@chart_points_json}
+              lat_range={@chart_lat_range}
+              predictions={@predictions}
+            />
             <div class="mt-3">
               <p :if={@predictions != []} class="text-xs text-gray-600 mb-2">
-                Solid line = onset (earliest recorded development, latitude-adjusted);
+                Solid line = onset (locally adjusted seasonal-clock pilot);
                 dashed = emergence; dotted = viable collections. Emergence and collection bands
                 show the middle 50%, with a lighter middle 80%. These are not confidence intervals.
               </p>

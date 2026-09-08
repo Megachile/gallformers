@@ -73,6 +73,36 @@ defmodule Gallformers.Phenology.OnsetTest do
     assert Onset.at(model, 35.4).phase == 20
   end
 
+  test "fine-scale variation cannot create correction knots less than five degrees apart" do
+    records =
+      for lat <- 36..54, year <- 2020..2024, do: record(lat, 40 + 20 * rem(lat, 2), year)
+
+    model = Onset.fit([record(35.4, 20) | records])
+    assert length(model.nodes) <= 7
+
+    for [left, right] <- Enum.chunk_every(model.nodes, 2, 1, :discard) do
+      assert right.lat - left.lat >= 5 - 1.0e-8
+    end
+
+    for node <- model.nodes do
+      assert_in_delta Onset.at(model, node.lat - 0.00001).phase,
+                      Onset.at(model, node.lat + 0.00001).phase,
+                      0.001
+    end
+
+    assert Onset.at(model, 35.4).phase == 20
+  end
+
+  test "records at the domain edges still contribute to the nearest broad band" do
+    records =
+      for lat <- [25, 55], year <- 2020..2024, do: record(lat, 40, year)
+
+    model = Onset.fit([record(34.4, 20) | records])
+    assert Onset.at(model, 25).phase > 20
+    assert Onset.at(model, 55).phase > 20
+    assert Onset.at(model, 34.4).phase == 20
+  end
+
   test "the correction is invariant to which annual clock cycle contains the season" do
     records = [record(35, 240), record(45, 255, 2020), record(45, 255, 2021)]
     shifted = Enum.map(records, fn {o, p} -> {o, p + 365} end)

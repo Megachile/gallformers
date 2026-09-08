@@ -60,6 +60,8 @@ defmodule GallformersWeb.PhenologyIntegrationTest do
            )
 
     assert render(compact) =~ "4 literature"
+    assert has_element?(compact, "#gall-phenology-layout.space-y-4")
+    refute has_element?(compact, "#gall-phenology-layout.grid")
     compact |> form("#gall-phenology-latitude", target_lat: "40") |> render_change()
     compact_windows = windows(compact)
     assert length(compact_windows) == 3

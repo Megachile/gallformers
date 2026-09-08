@@ -292,6 +292,34 @@ comparisons. Edge browser checks cover compact chart before/after latitude entry
 desktop/mobile sizing, shared prediction arrays, absent brush controls on the
 compact chart, source totals, and existing explorer toggle/panel independence.
 
+### Broader correction and full-width compact chart
+
+Adam found the one-degree local changes too lumpy and ecologically unsupported.
+The correction now has knots spaced five degrees apart, centered on the earliest
+anchor's latitude, with observations assigned to the nearest knot. Outer bands
+include records through the supported domain edges. The same early-window support
+and bounded interpolation rules remain; no changes to emergence or collections.
+This is a scale constraint on the fitted correction, not cosmetic chart smoothing.
+
+The broader DQP estimate is April 12 at 40°N and April 29 at 45°N; cinerosa at 30°N
+remains July 15. The loss of the narrow northern May 8 fit is a visible tradeoff,
+not concealed as unchanged timing. DQP buffered spatial holdout MAE is 5.0 days
+(12.6 fallback; 5.5 narrow pilot), and year holdout MAE is 14.2 days (21.2 fallback;
+13.9 narrow pilot). Eurosta improves versus fallback but less than with the narrow
+pilot; cinerosa's three spatial holdouts still worsen versus fallback (18.4 →
+20.0 days), though less than before. These are sampling-dependent first-positive
+proxies. The five-degree scale was requested, not selected by holdout optimization.
+
+The compact gall chart is now full-width, with latitude and results below it at
+all breakpoints. Browser coverage includes 960px half-screen width as well as
+desktop/mobile; the chart must fill its panel and the input must lie below it.
+
+Verification: 2,215 Elixir tests pass with the 84 standard exclusions, assets build
+passes, and the actual-browser layout/interaction checks pass. Regression tests
+enforce five-degree minimum knot spacing, preservation of the source anchor,
+domain-edge evidence inclusion, and the full-width gall layout. The 36 unchanged
+emergence/rearing comparisons still match; no observation data was modified.
+
 Release still requires maintainer acceptance and a separately reviewed, explicit
 curated data batch with an import audit. A complete GF–iNat crosswalk and scheduled
 imports are not prerequisites; unresolved identities must stay out of the batch.

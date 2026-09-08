@@ -52,7 +52,7 @@ defmodule GallformersWeb.PhenologyComponents do
               "#{n} #{source_label(source)}"
             end)}
           </p>
-          <div class="grid md:grid-cols-2 gap-4 mt-3">
+          <div id="gall-phenology-layout" class="space-y-4 mt-3">
             <div class="min-w-0">
               <.chart
                 id="gall-phenology-chart"

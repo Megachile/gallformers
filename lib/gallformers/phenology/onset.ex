@@ -2,7 +2,9 @@ defmodule Gallformers.Phenology.Onset do
   @moduledoc """
   Evidence-weighted local correction to the earliest-record seasonal fallback.
 
-  Overlapping two-degree latitude neighborhoods supply earliest normalized records.
+  Five-degree latitude bands supply earliest normalized records. Correction
+  knots are spaced five degrees apart, centered on the fallback anchor, so
+  interpolation cannot create one-degree local bends.
   Only records within fourteen days of that edge support the correction, with
   one contribution per quarter-degree locality/year and at most two per year.
   Isolated edges keep the fallback; repeated edges increasingly influence it.
@@ -16,22 +18,27 @@ defmodule Gallformers.Phenology.Onset do
   """
   alias Gallformers.Phenology.SeasonalClock, as: Clock
 
-  @radius_degrees 1
+  @spacing_degrees 5
   @early_days 14
   @fade_degrees 4
   @prior_support 2
 
   @doc "Prepare a small correction curve from observation/seasonal-phase pairs."
   def fit(records) do
-    fallback = records |> Enum.map(&elem(&1, 1)) |> Enum.min()
+    {anchor, fallback} =
+      Enum.min_by(records, fn {o, phase} -> {phase, o.date, o.latitude, o.longitude} end)
+
+    latitudes =
+      -6..6
+      |> Enum.map(&(anchor.latitude + &1 * @spacing_degrees))
+      |> Enum.filter(&Clock.supported_latitude?/1)
 
     nodes =
-      25..55
-      |> Enum.flat_map(fn lat ->
-        local = Enum.filter(records, fn {o, _} -> abs(o.latitude - lat) <= @radius_degrees end)
-        if local == [], do: [], else: [edge(local, fallback, lat)]
-      end)
+      records
+      |> Enum.group_by(fn {o, _} -> Enum.min_by(latitudes, &abs(o.latitude - &1)) end)
+      |> Enum.map(fn {lat, local} -> edge(local, fallback, lat) end)
       |> Enum.filter(&(&1.weight > 0 or &1.edge == fallback))
+      |> Enum.sort_by(& &1.lat)
 
     %{fallback: fallback, nodes: nodes}
   end

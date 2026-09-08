@@ -320,6 +320,42 @@ enforce five-degree minimum knot spacing, preservation of the source anchor,
 domain-edge evidence inclusion, and the full-width gall layout. The 36 unchanged
 emergence/rearing comparisons still match; no observation data was modified.
 
+### Local-onset pilot withdrawn; agnostic curve restored
+
+On September 7, 2026, Adam chose to remove the local evidence correction from
+both displays while retaining all chart/UI improvements. The broad pilot still
+put southern cinerosa onset implausibly late (September in his review). Repeated
+local first-positive dates may describe late sampling of persistent galls, not
+the local beginning of development; smoothing cannot resolve that ambiguity.
+
+Serving onset behavior is restored to commit `4c0ec924`: the earliest developing
+record on the centered seasonal clock anchors one species-independent curve.
+This does not restore q05–q10 or a developing-duration window. The known early
+northern DQP transfer remains a limitation, accepted rather than hidden. No
+local-weight metadata, correction module or pilot messaging remains in the app.
+The full-width lazy gall chart, source totals/links, shared date output,
+independent plot/panel controls and coverage warnings remain unchanged.
+
+The narrow implementation remains in commit `7098247e`; the broad one in
+`e98e05dc`. A self-contained archive outside application code also preserves the
+broad model, tests, exact method description, benchmark script and saved results:
+`C:/Users/adam/Documents/GitHub/Phenology/local-imports/release-review/local-onset-pilot-2026-09-07/`.
+Its README and isolated-module replay script allow revisiting the experiment
+without restoring retired production code or overwriting the saved results.
+Any future attempt needs independent onset evidence and whole-domain checks for
+persistent-gall contamination, not only improved held-out first-positive scores.
+
+Rollback verification: all 558 combinations of six species, integer latitudes
+25–55 and three events exactly match `4c0ec924`, including full contours and
+metadata. Southern cinerosa returns to July 12 at 25°N, July 13 at 27°N, July 14
+at 29°N and July 15 at 30°N. A new regression test verifies that repeated late
+local records do not bend the shared onset curve. `mix precommit` passes with
+2,206 tests and 84 standard exclusions. The archived pilot's ten tests pass under
+isolated module names. Assets build and actual-browser checks pass, preserving
+full-width layout, shared dates and independent event/stage/panel controls.
+Dialyzer reports zero errors, and all 184 JavaScript tests pass. No observation
+data was modified; the retired model and tests were removed only after archival.
+
 Release still requires maintainer acceptance and a separately reviewed, explicit
 curated data batch with an import audit. A complete GF–iNat crosswalk and scheduled
 imports are not prerequisites; unresolved identities must stay out of the batch.

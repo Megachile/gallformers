@@ -142,11 +142,7 @@ defmodule GallformersWeb.PhenologyComponents do
         <span :if={p.event == :onset}>around {doy_label(p.low_doy)}</span>
         <span :if={p.event != :onset}>{doy_label(p.low_doy)}–{doy_label(p.high_doy)}</span>
         <span :if={p.event != :onset} class="text-gray-600">(middle 50%)</span>
-        <.onset_anchor
-          :if={p.event == :onset}
-          anchor={p.anchor}
-          adjusted={p.low_doy != p.fallback_doy}
-        />
+        <.onset_anchor :if={p.event == :onset} anchor={p.anchor} />
         <span :if={Map.has_key?(p, :median_doy)} class="block text-gray-600">
           Middle 80% {doy_label(p.outer_low_doy)}–{doy_label(p.outer_high_doy)};
           median {doy_label(p.median_doy)}.
@@ -154,9 +150,6 @@ defmodule GallformersWeb.PhenologyComponents do
         <span class="block text-xs text-gray-500">
           {p.n} distinct date/location {if p.n == 1, do: "record", else: "records"}.
           <span :if={p.sparse?}>Few records; season timing may be incomplete.</span>
-          <span :if={p.event == :onset && p.local_onset_weight < 0.2} class="block text-amber-800">
-            Little local onset evidence; this date relies on the seasonal-clock fallback.
-          </span>
           <span :if={p.extrapolated?} class="block text-amber-800">
             Extrapolation: {latitude_label(p.target_lat)} is outside the recorded range
             ({latitude_range(p)}). Timing at this latitude is unverified.
@@ -177,7 +170,6 @@ defmodule GallformersWeb.PhenologyComponents do
   end
 
   attr :anchor, :map, required: true
-  attr :adjusted, :boolean, required: true
 
   defp onset_anchor(assigns) do
     assigns =
@@ -189,8 +181,7 @@ defmodule GallformersWeb.PhenologyComponents do
 
     ~H"""
     <span class="block text-xs text-gray-600">
-      <span :if={!@adjusted}>Earliest recorded development, latitude-adjusted.</span>
-      <span :if={@adjusted}>Seasonal clock adjusted using early records (pilot).</span>
+      Earliest recorded development, latitude-adjusted.
       <.link
         :if={@url}
         href={@url}
@@ -198,7 +189,7 @@ defmodule GallformersWeb.PhenologyComponents do
         rel="noopener"
         class="text-gf-maroon hover:underline"
       >
-        {if @adjusted, do: "Fallback anchor", else: "Anchor record"} ↗
+        Anchor record ↗
       </.link>
       {Calendar.strftime(@anchor.date, "%b %-d, %Y")} at {latitude_label(@anchor.latitude)}.
     </span>

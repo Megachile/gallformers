@@ -29,9 +29,8 @@ The prediction layer pools selected species within generation. It collapses
 replicate species/date/0.1°-locality records and gives each occupied 1° geographic
 cell equal total weight. A weighted circular mean centers the year, keeping
 December–January seasons together. Fresh-gall onset uses the earliest developing
-record on that centered, latitude-normalized clock as a fallback, with the local
-correction described below. It does not estimate the duration of developing
-galls. Its single line/date links to the fallback anchor record
+record on that centered, latitude-normalized clock, not a percentile or the
+duration of developing galls. Its single line/date links to the anchor record
 where a source URL is available. Query-order-independent deduplication makes that
 anchor reproducible. This is an earliest **recorded** onset estimate: the input
 has no separate verified-fresh flag, and an early mislabel can move the line.
@@ -40,53 +39,19 @@ the upstream stage label to correct it; there are no per-species overrides.
 The circular centering still assumes a coherent season, not year-round or
 several independent developing phases.
 
-### Local onset correction pilot
+### Retired local-onset pilot
 
-`Phenology.Onset` adjusts the fallback where repeated local early records support
-a different seasonal phase. Correction knots are now **five degrees apart**,
-centered on the earliest record's latitude. Each record belongs to the nearest
-supported knot, giving five-degree bands (the outer bands extend to the supported
-domain boundaries). Take the earliest phase in each band. Only observations
-within fourteen calendar days of that local edge
-(all projected to the neighborhood's latitude) contribute support. Collapse
-support to quarter-degree locality/year combinations, with at most two
-contributions per year. Thus a hundred late photos or repeated photos from one
-trip do not overwhelm an early record.
+The local evidence correction was withdrawn on September 7, 2026. Its code,
+parameters, benchmark results and limitations are recorded in Mull matter 439a,
+with a separate replayable local archive. The narrow pilot is recoverable at
+commit `7098247e`; the broader five-degree pilot at `e98e05dc`.
 
-Let `s = max(0, min(locality_year_count, 2 * year_count) - 1)`. The node's
-correction is `s / (s + 2) * (local_edge_phase - fallback_phase)`. Isolated local
-edges do not create correction nodes. Neighborhoods containing the global
-earliest phase remain zero-correction anchors. A bounded cubic smoothstep
-interpolates the corrections between nodes without overshooting them. Gaps
-between correction knots are always at least five degrees, so the model cannot
-trace the one-degree fluctuations seen in the first local pilot. Neither
-species-specific artifacts nor new climate downloads are needed.
-
-Beyond supported nodes, continue the shared clock from the nearest **adjusted**
-phase. Do not fade the correction back to the original distant anchor: doing so
-created an artificial earlier turn north of the DQP observations. The local
-evidence weight, not the date correction, declines to zero over four degrees
-from support; weight below 0.2 triggers a plain-language fallback warning. This
-weight is a disclosure heuristic, not a probability or calibrated confidence.
-
-All neighborhoods, support rules and smoothing settings are fixed pilot choices,
-not biological constants or learned parameters. Local first-positive dates can
-still be late because of missing early sampling, and repeated old galls can
-misrepresent a local early edge. A local correction does not imply a host,
-elevation, longitude or annual climate adjustment. Curated onset anchors remain
-important even in datasets with many developing records.
-
-Read-only snapshot checks for the broader pilot: DQP onset at 40°N moves April 2
-→ April 12, and at 45°N April 13 → April 29. Cinerosa at 30°N stays July 15.
-Leaving whole years out reduces DQP mean absolute error against held-out
-first-positive dates from 21.2 to 14.2 days; buffered latitude-band holdouts reduce
-it from 12.6 to 5.0 days. Eurosta also improves (24.0 → 20.8 and 17.1 → 13.6 days).
-Cinerosa latitude-band holdouts **worsen** (18.4 → 20.0 days, only three folds).
-These sampling-dependent first
-records are not true-onset labels or observed absences. This supports a preview,
-not a claim of universal model validation. The five-degree scale follows the
-requested broader ecological effect, not an optimization on these folds. Compared
-with the narrow pilot, some held-out scores improve and others deteriorate.
+Neither correction is part of the serving model. Repeated local first-positive
+dates can reflect late sampling of persistent galls rather than local onset.
+Smoothing those dates did not resolve that ambiguity and produced implausibly
+late southern cinerosa estimates. The restored shared-clock curve accepts its
+known latitude-transfer limitations, including early northern DQP predictions,
+without learning a species-specific curve from those local dates.
 
 ### Other events and presentation
 

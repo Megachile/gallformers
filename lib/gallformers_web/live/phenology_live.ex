@@ -893,7 +893,7 @@ defmodule GallformersWeb.PhenologyLive do
             />
             <div class="mt-3">
               <p :if={@predictions != []} class="text-xs text-gray-600 mb-2">
-                Solid line = onset (locally adjusted seasonal-clock pilot);
+                Solid line = onset (earliest recorded development, latitude-adjusted);
                 dashed = emergence; dotted = viable collections. Emergence and collection bands
                 show the middle 50%, with a lighter middle 80%. These are not confidence intervals.
               </p>

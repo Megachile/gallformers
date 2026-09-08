@@ -3,8 +3,7 @@ defmodule Gallformers.Phenology.Prediction do
   Shared seasonal-landmark predictions for the explorer and compact gall view.
 
   Selected species pool within generation. Developing observations estimate only
-  the leading edge, anchored to the earliest seasonally normalized record with
-  local evidence corrections supplied by `Onset`.
+  the leading edge, anchored to the earliest seasonally normalized record.
   Free-living and maturing observations jointly
   describe emergence; perimature and enclosed Adult annotations do not. Viable
   collections require explicit viability, independently of phenophase.
@@ -13,7 +12,6 @@ defmodule Gallformers.Phenology.Prediction do
   cells receive equal weight. Quantiles describe the available evidence, not
   confidence intervals or validated physiological limits.
   """
-  alias Gallformers.Phenology.Onset
   alias Gallformers.Phenology.SeasonalClock, as: Clock
 
   @events [:onset, :emergence, :rearing]
@@ -29,7 +27,7 @@ defmodule Gallformers.Phenology.Prediction do
   Fits the requested events at a supported latitude.
 
   No usable evidence returns an empty list, not an operational error. Set
-  `contours: false` for the compact view; dates and evidence counts are identical.
+  `contours: false` for date-only results; dates and evidence counts are identical.
   """
   @spec predict([map()], number(), [event()], keyword()) ::
           {:ok, [prediction()]} | {:error, :unsupported_latitude | :unsupported_event}
@@ -125,7 +123,7 @@ defmodule Gallformers.Phenology.Prediction do
     values = Enum.map(obs, &weighted_coordinate(&1, counts))
     center = circular_center(values)
 
-    {anchor, _} =
+    {anchor, {phase, _}} =
       obs
       |> Enum.zip(values)
       |> Enum.min_by(fn {o, {v, _}} -> {unwrap(v, center), anchor_key(o)} end)
@@ -133,8 +131,7 @@ defmodule Gallformers.Phenology.Prediction do
     provenance =
       Map.take(anchor, [:id, :species_id, :species_name, :date, :latitude, :page_url, :source_url])
 
-    normalized = Enum.zip_with(obs, values, fn o, {v, _} -> {o, unwrap(v, center)} end)
-    {Onset.fit(normalized), provenance}
+    {[unwrap(phase, center)], provenance}
   end
 
   defp thresholds(obs, counts, false) do
@@ -165,10 +162,7 @@ defmodule Gallformers.Phenology.Prediction do
       p = row(qs, lat, onset?) |> Map.delete(:lat)
       p = Map.new(p, fn {k, d} -> {k, Integer.mod(round(d) - 1, 365) + 1} end)
 
-      p =
-        if onset?,
-          do: Map.merge(p, %{anchor: anchor, local_onset_weight: Onset.at(qs, lat).weight}),
-          else: p
+      p = if onset?, do: Map.put(p, :anchor, anchor), else: p
 
       names =
         valid
@@ -207,9 +201,9 @@ defmodule Gallformers.Phenology.Prediction do
     end
   end
 
-  defp row(model, lat, true) do
-    onset = model |> Onset.at(lat) |> Map.fetch!(:phase) |> Clock.inverse(lat)
-    %{lat: lat, low_doy: onset, high_doy: onset, fallback_doy: Clock.inverse(model.fallback, lat)}
+  defp row(qs, lat, true) do
+    [onset] = Enum.map(qs, &Clock.inverse(&1, lat))
+    %{lat: lat, low_doy: onset, high_doy: onset}
   end
 
   defp row(qs, lat, false) do

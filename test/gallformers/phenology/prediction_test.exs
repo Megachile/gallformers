@@ -63,6 +63,26 @@ defmodule Gallformers.Phenology.PredictionTest do
     assert alone.contours == p.contours
   end
 
+  test "repeated later local records do not bend the shared onset curve" do
+    anchor = obs(1, 196)
+
+    local_records =
+      for lat <- [25.0, 40.0, 50.0], year <- 2020..2025 do
+        %{obs(1, 270) | latitude: lat, date: Date.new!(year, 9, 27)}
+      end
+
+    for lat <- [25, 30, 35, 40, 45, 50, 55] do
+      assert {:ok, [alone]} = Prediction.predict([anchor], lat, [:onset])
+      assert {:ok, [p]} = Prediction.predict([anchor | local_records], lat, [:onset])
+      assert p.low_doy == alone.low_doy
+      assert p.high_doy == alone.high_doy
+      assert p.contours == alone.contours
+      assert p.anchor == alone.anchor
+      refute Map.has_key?(p, :local_onset_weight)
+      refute Map.has_key?(p, :fallback_doy)
+    end
+  end
+
   test "onset ranks seasonally normalized dates, not raw calendar dates" do
     southern = obs(1, 100)
     northern = %{obs(1, 110) | latitude: 50.0}

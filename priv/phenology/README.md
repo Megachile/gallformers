@@ -96,7 +96,9 @@ Both charts use the same smaller observation symbols. Ordinary gall records are
 translucent; explicitly viable records or records with a nonblank insect-stage
 annotation are fully opaque and drawn above ordinary points, regardless of gall
 phase. This restores the Shiny evidence emphasis without changing model inputs.
-Mouseout restores each point's evidence-based opacity. Interval
+Opacity is applied once to the ordinary-points layer, not independently to its
+symbols: overlapping ordinary records remain faint. Hover uses a temporary
+opaque copy without changing the underlying evidence layer. Interval
 shading stays behind the points; outlines sit above them with a narrow white
 halo for contrast in dense datasets. Hover restores full point emphasis and
 source details. No observations are thinned by this styling. Senescent records

@@ -518,3 +518,16 @@ Verification: 192 JavaScript tests and 2,212 Elixir tests pass (84 standard
 exclusions); assets build succeeds. Real-browser desktop/mobile checks verify
 evidence-based opacity in both views, foreground prediction layers, hover,
 independent controls, matching dates and no page errors or horizontal overflow.
+
+Follow-up: ordinary points now composite inside one SVG group at 0.25 opacity,
+with opaque child symbols, so overlaps cannot accumulate opacity and resemble
+the fully opaque evidence layer. Highlighted records occupy a separate group;
+both share the same renderer in explorer and gall views. Hover uses one temporary
+noninteractive opaque copy, removed on mouseout, below foreground predictions.
+No records are thinned or displaced. Tests verify group opacity, evidence ordering,
+hover cleanup and redraw while preserving all records.
+Verification: 192 JS tests and 2,212 Elixir tests pass (84 standard exclusions),
+and assets build passes. Actual Edge rasterization confirms 50 overlapping
+ordinary symbols have the same center pixel as one symbol, distinct from the
+opaque evidence symbol. Both views, hover, mobile layout and control independence
+pass the real-browser regression with no page errors.

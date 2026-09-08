@@ -41,16 +41,19 @@ describe('phenology prediction semantics', () => {
       expect(JSON.parse(el.dataset.points)).toEqual(points)
       for (const dot of dots) {
         const expected = [0, 2, 4, 5].includes(dot.__data__.id) ? '1' : '0.25'
-        expect(dot.getAttribute('fill-opacity')).toBe(expected)
-        expect(dot.getAttribute('stroke-opacity')).toBe(expected)
+        expect(dot.parentNode.getAttribute('opacity')).toBe(expected)
+        expect(dot.getAttribute('fill-opacity')).toBe('1')
+        expect(dot.getAttribute('stroke-opacity')).toBe('1')
         dot.dispatchEvent(new MouseEvent('mouseover', {bubbles: true}))
         expect(dot.getAttribute('fill-opacity')).toBe('1')
+        expect(el.querySelectorAll('.observation-hover')).toHaveLength(1)
+        expect(el.querySelector('.observation-hover').style.pointerEvents).toBe('none')
         dot.dispatchEvent(new MouseEvent('mouseout', {bubbles: true}))
-        expect(dot.getAttribute('fill-opacity')).toBe(expected)
-        expect(dot.getAttribute('stroke-opacity')).toBe(expected)
+        expect(dot.parentNode.getAttribute('opacity')).toBe(expected)
+        expect(el.querySelectorAll('.observation-hover')).toHaveLength(0)
       }
       hook.renderChart(true)
-      expect([...el.querySelectorAll('.obs')].filter(d => d.getAttribute('fill-opacity') === '1')).toHaveLength(4)
+      expect(el.querySelectorAll('.observation-layer[opacity="1"] .obs')).toHaveLength(4)
       hook.destroyed()
     }
   })
@@ -109,12 +112,15 @@ describe('phenology prediction semantics', () => {
       const point = points[0]
       styles.push(['d', 'fill-opacity', 'stroke-opacity', 'stroke-width']
         .map(attr => point.getAttribute(attr)))
-      expect(point.getAttribute('fill-opacity')).toBe('0.25')
-      expect(point.getAttribute('stroke-opacity')).toBe('0.25')
-      const parent = point.parentNode
+      expect(point.getAttribute('fill-opacity')).toBe('1')
+      expect(point.getAttribute('stroke-opacity')).toBe('1')
+      const layer = point.parentNode
+      expect(layer.getAttribute('opacity')).toBe('0.25')
+      expect(layer.querySelectorAll('.obs')).toHaveLength(500)
+      const parent = layer.parentNode
       const children = [...parent.children]
-      expect(children.indexOf(el.querySelector('.prediction-overlay'))).toBeLessThan(children.indexOf(point))
-      expect(children.indexOf(el.querySelector('.prediction-lines'))).toBeGreaterThan(children.indexOf(points.at(-1)))
+      expect(children.indexOf(el.querySelector('.prediction-overlay'))).toBeLessThan(children.indexOf(layer))
+      expect(children.indexOf(el.querySelector('.prediction-lines'))).toBeGreaterThan(children.indexOf(el.querySelector('.observation-hover-layer')))
       expect(el.querySelector('.prediction-lines').getAttribute('pointer-events')).toBe('none')
       expect(el.querySelector('.prediction-lines').getAttribute('clip-path'))
         .toBe(el.querySelector('.prediction-overlay').getAttribute('clip-path'))
@@ -129,8 +135,8 @@ describe('phenology prediction semantics', () => {
       expect(point.getAttribute('stroke-opacity')).toBe('1')
       expect(document.querySelector('.phenology-tooltip').style.visibility).toBe('visible')
       point.dispatchEvent(new MouseEvent('mouseout', {bubbles: true}))
-      expect(point.getAttribute('fill-opacity')).toBe('0.25')
-      expect(point.getAttribute('stroke-opacity')).toBe('0.25')
+      expect(layer.getAttribute('opacity')).toBe('0.25')
+      expect(el.querySelectorAll('.observation-hover')).toHaveLength(0)
 
       expect(document.querySelector('.phenology-tooltip').style.display).toBe('none')
 

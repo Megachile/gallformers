@@ -265,21 +265,35 @@ export default {
     // Points — drawn on top of the brush overlay. Each path captures its
     // own mouseover; the brush still works for empty-area drag-selection.
     const symbolGen = symbol().size(POINT_AREA)
-    svg.selectAll('path.obs')
-      .data(points.slice().sort((a, b) => pointOpacity(a) - pointOpacity(b))).enter()
+    // Composite ordinary symbols together before fading the layer, so repeated
+    // records cannot build opacity and impersonate stronger evidence.
+    const pointLayers = svg.selectAll('g.observation-layer')
+      .data([POINT_OPACITY, 1]).enter().append('g')
+      .attr('class', 'observation-layer')
+      .attr('opacity', opacity => opacity)
+    const hoverLayer = svg.append('g').attr('class', 'observation-hover-layer')
+      .attr('pointer-events', 'none')
+    pointLayers.selectAll('path.obs')
+      .data(opacity => points.filter(d => pointOpacity(d) === opacity)).enter()
       .append('path')
         .attr('class', 'obs')
         .attr('d', d => symbolGen.type(PHENO_SYMBOL[d.phenophase] || symbolCircle)())
         .attr('transform', d => `translate(${x(d.doy)},${y(d.lat)})`)
         .attr('fill', d => GEN_COLOR[d.generation] || GEN_COLOR.unknown)
-        .attr('fill-opacity', pointOpacity)
+        .attr('fill-opacity', 1)
         .attr('stroke', '#222')
-        .attr('stroke-opacity', pointOpacity)
+        .attr('stroke-opacity', 1)
         .attr('stroke-width', 0.4)
         .style('cursor', 'pointer')
         .style('pointer-events', 'all')
         .on('mouseover', function (event, d) {
-          select(this).attr('fill-opacity', 1).attr('stroke-opacity', 1)
+          // A temporary copy escapes the muted layer without moving the hit
+          // target or changing the permanent evidence ordering.
+          hoverLayer.selectAll('*').remove()
+          const copy = this.cloneNode(false)
+          copy.setAttribute('class', 'observation-hover')
+          copy.style.pointerEvents = 'none'
+          hoverLayer.node().appendChild(copy)
           const speciesLine = d.species_name
             ? `<b>${escapeHtml(d.species_name)}</b><br>`
             : ''
@@ -296,8 +310,8 @@ export default {
           tooltip.style('top',  (event.pageY - 12) + 'px')
                  .style('left', (event.pageX + 12) + 'px')
         })
-        .on('mouseout', function (event, d) {
-          select(this).attr('fill-opacity', pointOpacity(d)).attr('stroke-opacity', pointOpacity(d))
+        .on('mouseout', function () {
+          hoverLayer.selectAll('*').remove()
           tooltip.style('display', 'none').style('visibility', 'hidden')
         })
 

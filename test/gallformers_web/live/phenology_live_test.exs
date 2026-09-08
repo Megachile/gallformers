@@ -170,17 +170,20 @@ defmodule GallformersWeb.PhenologyLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/phenology?search=&display=table")
 
-      # The mode switcher (click & drag / date range / season index) and its
+      # The mode switcher (click & drag / date range / seasonal landmark) and its
       # per-mode input groups are present alongside the table.
       assert html =~ ~s(phx-hook="PhenologySelect")
       assert html =~ ~s(name="phenology-sel-mode")
       assert html =~ ~s(value="click_drag")
       assert html =~ ~s(value="date_range")
-      assert html =~ ~s(value="season_index")
+      assert html =~ ~s(value="seasonal_landmark")
+      assert html =~ ~s(data-landmarks=)
       assert html =~ ~s(data-sel="date")
       assert html =~ ~s(data-sel="days")
       assert html =~ ~s(data-sel="lat")
-      assert html =~ ~s(data-sel="thr")
+      refute html =~ ~s(data-sel="thr")
+      assert html =~ ~s(data-sel-error)
+      refute html =~ ~s(value="season_index")
       # No raw seasind number is ever exposed.
       refute html =~ ~s(data-sel="seasind")
     end

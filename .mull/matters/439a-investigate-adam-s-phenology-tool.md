@@ -425,3 +425,44 @@ curated data batch with an import audit. A complete GF–iNat crosswalk and sche
 imports are not prerequisites; unresolved identities must stay out of the batch.
 The latitude-only reference is not locally validated weather, altitude or host
 phenology. Keep regional refinement and broader product ideas separate.
+
+### Seasonal-landmark observation selection
+
+Adam requested replacing the explorer's legacy Season index selection mode with
+the new landmark method. Seasonal landmark now projects a reference date ± days
+at a reference latitude across the shared 25–55°N clock. It no longer asks for a
+unitless seasind tolerance. The browser receives the exact bundled landmark rows
+through the Phenology context API; its small forward/inverse module mirrors the
+server arithmetic, replacing the former browser solar-index implementation.
+No new climate file, database field, import, per-species model or network service
+was added. The obsolete web-to-Math boundary exception was removed.
+
+The same window drives shading, table/species selection, count and CSV. Server
+CSV filtering recomputes the window from reference inputs, ignoring imported
+seasind. Circular shading uses clipped annual copies, including winter and
+whole-year windows. Invalid inputs select nothing with an inline message and
+HTTP 400 on export, rather than silently downloading all data. Clear selection
+resets the mode. Prediction inputs, contours, stage/event toggles and panel
+independence are unchanged. Selection retains plotted/stored DOY (including leap
+day 366); prediction normalization remains fixed non-leap. The one-day calendar
+distinction is documented rather than silently rewriting source fields.
+
+Actual-browser CSV comparison also found an existing species-summary bug:
+Enum.max compared Date structs structurally, sometimes calling an older year
+the latest observation. Using Date's chronological comparator fixes that column
+and its recency sorting; the CSV test now includes a cross-year counterexample.
+The apparent Clear-selection failure was an automation click beneath the fixed
+header; centering the button confirmed the ordinary click works without another
+application change.
+
+Verification: mix precommit passes with 2,212 tests and 84 standard exclusions;
+all 191 JavaScript tests pass. Tests cover bundled-reference/inverse parity,
+reference validation, exact circular boundaries, cross-latitude membership,
+whole-year selection, clipping, count/CSV controls and invalid-export behavior.
+Actual Edge checks compare every exported observation with the client-selected
+set for ten windows spanning D. quercuspalustris and Disholcaspis: spring, summer,
+winter, leap-year December 31 and whole-year selections. The winter Disholcaspis
+window selects 647 records; its table/count/species CSV agree. Prediction payloads
+remain identical, including across panel changes. The reusable local QA script
+is `Phenology/local-imports/release-review/landmark-selection.cjs`; no QA scripts
+or curated observation data were added to the application repository.

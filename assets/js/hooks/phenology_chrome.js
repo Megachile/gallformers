@@ -1,8 +1,8 @@
-import { phenologyState, readPoints, applyBrush } from './phenology_state'
+import { phenologyState, readPoints, applySelection } from './phenology_state'
 
-// Owns the "· N in brush selection" count and the Clear-selection
+// Owns the "· N in selection" count and the Clear-selection
 // button. Both are pure client state — they only exist when the user
-// has an active brush, which the server doesn't track — so the host is
+// has an active selection, which the server doesn't track — so the host is
 // `phx-update="ignore"` and we render the inner DOM ourselves.
 //
 // The CSV link's brush-aware href is handled by a sibling hook on the
@@ -44,17 +44,17 @@ export default {
   applyBrush() {
     const brush = phenologyState.brush
 
-    if (!brush) {
+    if (!brush && phenologyState.selection.mode === 'click_drag') {
       this._countEl.style.display = 'none'
       this._countEl.textContent = ''
       this._clearBtn.style.display = 'none'
       return
     }
 
-    const n = applyBrush(readPoints(), brush).length
+    const n = applySelection(readPoints()).length
 
     this._countEl.style.display = ''
-    this._countEl.textContent = `· ${n} in brush selection`
+    this._countEl.textContent = `· ${n} in selection`
     this._clearBtn.style.display = ''
   },
 }

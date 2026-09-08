@@ -19,13 +19,28 @@ defmodule GallformersWeb.PhenologyController do
   @species_headers ~w(species n_obs latest)
 
   def export(conn, params) do
+    case PhenologyFilters.parse_selection(params) do
+      {:error, :invalid_landmark_selection} ->
+        conn
+        |> put_resp_content_type("text/plain")
+        |> send_resp(
+          400,
+          "Choose a reference day (1–366), latitude (25–55°N) and days before/after (0–183)."
+        )
+
+      selection ->
+        export_selected(conn, params, selection)
+    end
+  end
+
+  defp export_selected(conn, params, selection) do
     filters = PhenologyFilters.from_url_params(params)
 
     observations =
       filters
       |> Phenology.search_observations()
       |> apply_brush(PhenologyFilters.parse_brush(params))
-      |> apply_selection(PhenologyFilters.parse_selection(params))
+      |> apply_selection(selection)
 
     {filename, body} =
       build_csv(filters[:display_mode], observations, filters[:sort], filters[:sort_dir])
@@ -58,16 +73,8 @@ defmodule GallformersWeb.PhenologyController do
     end)
   end
 
-  defp apply_selection(obs, {:season_index, si, thr}) do
-    Enum.filter(obs, fn o ->
-      is_number(o.seasind) and mod_dist(o.seasind, si) <= thr
-    end)
-  end
-
-  # Circular distance on the 0..1 season-index ring.
-  defp mod_dist(a, b) do
-    d = abs(a - b)
-    min(d, 1 - d)
+  defp apply_selection(obs, {:seasonal_landmark, window}) do
+    Enum.filter(obs, &Phenology.in_seasonal_window?(&1.doy, &1.latitude, window))
   end
 
   # The two CSV shapes match what's on screen for the respective display
@@ -78,7 +85,8 @@ defmodule GallformersWeb.PhenologyController do
       observations
       |> Enum.group_by(&{&1.species_id, &1.species_name})
       |> Enum.map(fn {{_, name}, obs} ->
-        latest = obs |> Enum.map(& &1.date) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end)
+        latest =
+          obs |> Enum.map(& &1.date) |> Enum.reject(&is_nil/1) |> Enum.max(Date, fn -> nil end)
 
         %{name: name, n_obs: length(obs), latest: latest}
       end)

@@ -6,7 +6,6 @@ import { brush } from 'd3-brush'
 import { symbol, symbolCircle, symbolTriangle, symbolSquare,
          symbolStar, symbolCross, symbolDiamond } from 'd3-shape'
 import { phenologyState } from './phenology_state'
-import { seasindProfile, doyForSeasindFromProfile } from './season_index'
 
 // Symbols for displayed phenophases. Senescent records are not plotted.
 const PHENO_SYMBOL = {
@@ -66,7 +65,7 @@ export default {
     }
     document.addEventListener('phenology:clear-brush', this._clearBrushListener)
 
-    // Redraw the Date-range / Season-index selection overlay whenever the
+    // Redraw the Date-range / Seasonal-landmark selection overlay whenever the
     // selection changes (the select hook publishes on every input). The
     // brush's own rectangle is drawn by d3-brush, so click_drag mode draws
     // no custom overlay.
@@ -220,7 +219,7 @@ export default {
       .attr('class', 'brush')
       .call(chartBrush) : null
 
-    // Selection overlay for the Date-range / Season-index modes, drawn above
+    // Selection overlay for the Date-range / Seasonal-landmark modes, drawn above
     // the brush background but below the points (so points stay visible on
     // the shading). pointer-events none so it never eats point hovers or
     // brush drags. Populated by drawSelectionOverlay().
@@ -239,6 +238,7 @@ export default {
     svg.append('defs').append('clipPath').attr('id', predictionClipId)
       .append('rect').attr('width', width).attr('height', height)
     this._predictionG.attr('clip-path', `url(#${predictionClipId})`)
+    this._overlayG?.attr('clip-path', `url(#${predictionClipId})`)
 
     // Programmatically clear the rectangle (called from the chrome's
     // Clear-selection listener). `restoringBrush` suppresses the d3 "end"
@@ -310,7 +310,7 @@ export default {
       .attr('pointer-events', 'none')
 
     // Reflect the current selection (e.g. after a filter-driven rebuild the
-    // user may already have a Date-range / Season-index lens active).
+    // user may already have a Date-range / Seasonal-landmark lens active).
     this.drawSelectionOverlay()
     this.drawPredictions()
     if (previousBrush) moveBrush(previousBrush)
@@ -393,7 +393,7 @@ export default {
     }
   },
 
-  // Draw the Date-range (vertical band) or Season-index (curved seasind
+  // Draw the Date-range (vertical band) or Seasonal-landmark (curved clock
   // band) selection onto the chart, matching what applySelection filters in
   // the table. Cleared and redrawn on every selection change. click_drag
   // draws nothing here — d3-brush renders its own rectangle.
@@ -433,55 +433,34 @@ export default {
       const bands = lo <= hi ? [[lo, hi]] : [[0, hi], [lo, 365]]
       bands.forEach(([a, b]) => band(x(a), x(b)))
       ;[lo, hi].forEach((d) => vline(x(d)))
-    } else if (sel.mode === 'season_index') {
-      if (sel.si == null || sel.thr == null) return
-
-      // Each latitude has its own DOY→seasind curve, so the band's edges bow
-      // with latitude — precompute a seasind profile per sampled latitude.
-      const [latMin, latMax] = y.domain()
-      const N = 40
-      const samples = []
-      for (let i = 0; i <= N; i++) {
-        const lat = latMin + ((latMax - latMin) * i) / N
-        samples.push({ lat, cum: seasindProfile(lat) })
+    } else if (sel.mode === 'seasonal_landmark') {
+      if (!sel.clock || !sel.window) return
+      const {clock, window: {low, high}} = sel
+      const latMin = Math.max(y.domain()[0], clock.latitudes[0])
+      const latMax = Math.min(y.domain()[1], clock.latitudes.at(-1))
+      if (latMax <= latMin) return
+      if (high - low >= 365) {
+        g.append('rect').attr('class', 'landmark-selection-band')
+          .attr('x', 0).attr('y', y(latMax)).attr('width', this._width)
+          .attr('height', y(latMin) - y(latMax)).attr('fill', GREEN).attr('fill-opacity', 0.12)
+        return
       }
-
-      // The DOY-space isopleth for a seasind value, across latitudes.
-      const isopleth = (s) =>
-        samples.map((sm) => [x(doyForSeasindFromProfile(sm.cum, s)), y(sm.lat)])
-
-      const fillBetween = (a, b) => {
-        const left = isopleth(a)
-        const right = isopleth(b)
-        const poly = left.concat(right.slice().reverse())
-        g.append('polygon')
-          .attr('points', poly.map((p) => p.join(',')).join(' '))
+      // At fixed phase, inverse dates interpolate linearly between reference
+      // rows. Use those exact knots, including the visible domain boundaries.
+      const samples = [...new Set([latMin, ...clock.latitudes.filter(lat =>
+        lat > latMin && lat < latMax), latMax])]
+      for (const shift of [-730, -365, 0, 365, 730]) {
+        const left = samples.map(lat => [x(clock.inverse(low, lat) + shift), y(lat)])
+        const right = samples.map(lat => [x(clock.inverse(high, lat) + shift), y(lat)])
+        g.append('path').attr('class', 'landmark-selection-band')
+          .attr('d', toPath([...left, ...right.slice().reverse()]) + 'Z')
           .attr('fill', GREEN).attr('fill-opacity', 0.12)
+        for (const edge of [left, right]) {
+          g.append('path').attr('class', 'landmark-selection-edge').attr('d', toPath(edge))
+            .attr('fill', 'none').attr('stroke', GREEN).attr('stroke-width', 1)
+            .attr('stroke-dasharray', '4 3')
+        }
       }
-
-      const edge = (s) =>
-        g.append('path').attr('d', toPath(isopleth(s)))
-          .attr('fill', 'none').attr('stroke', GREEN).attr('stroke-width', 1)
-          .attr('stroke-dasharray', '4 3')
-
-      // Season index is circular: the table filters on mod-distance, so a
-      // band whose reference sits near the year boundary spills past seasind
-      // 1 back to 0 (late December AND early January are one day apart). Mirror
-      // that here — when [si−thr, si+thr] crosses 0 or 1, draw two bands split
-      // at the year end, and dash only the two real selection edges (not the
-      // Jan-1 / Dec-31 plot edges).
-      const loRaw = sel.si - sel.thr
-      const hiRaw = sel.si + sel.thr
-      if (loRaw >= 0 && hiRaw <= 1) {
-        fillBetween(loRaw, hiRaw)
-      } else {
-        const lo = mod1(loRaw)
-        const hi = mod1(hiRaw)
-        fillBetween(lo, 1)
-        fillBetween(0, hi)
-      }
-      edge(mod1(loRaw))
-      edge(mod1(hiRaw))
     }
     // click_drag: nothing — the brush draws its own rectangle.
   },
@@ -541,10 +520,6 @@ function escapeHtml(s) {
 
 function mod365(v) {
   return ((v % 365) + 365) % 365
-}
-
-function mod1(v) {
-  return ((v % 1) + 1) % 1
 }
 
 function toPath(points) {

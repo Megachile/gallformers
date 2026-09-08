@@ -1,13 +1,11 @@
 import { phenologyState } from './phenology_state'
-import { seasonIndex, doyOf } from './season_index'
+import { createClock } from './seasonal_clock'
 
-// Owns the "Selection mode" controls beneath the chart, a port of the
-// legacy doyCalc selection modes:
+// Owns the "Selection mode" controls beneath the chart:
 //   • Click & drag  → the chart brush drives the selection (no inputs here)
 //   • Date range    → a center date ± N days (circular DOY window)
-//   • Season index  → a date + latitude + tolerance; we compute the season
-//                     index here (season_index.js) and select a circular
-//                     seasind band, so no one has to type a raw seasind.
+//   • Seasonal landmark → a date ± days at a reference latitude, projected
+//                         across latitudes using the prediction clock.
 //
 // The modes are mutually exclusive. On any input the hook recomputes the
 // selection and publishes it to phenologyState; the table / species list /
@@ -19,17 +17,23 @@ import { seasonIndex, doyOf } from './season_index'
 
 export default {
   mounted() {
+    this.clock = createClock(JSON.parse(this.el.dataset.landmarks))
     this._onChange = () => this.publish()
     this.el.addEventListener('input', this._onChange)
     this.el.addEventListener('change', this._onChange)
+    this._onClear = () => {
+      this.el.querySelector('input[value="click_drag"]').checked = true
+      this.publish()
+    }
+    document.addEventListener('phenology:clear-brush', this._onClear)
     this.publish()
   },
 
   destroyed() {
     this.el.removeEventListener('input', this._onChange)
     this.el.removeEventListener('change', this._onChange)
-    // Leaving the DOM (e.g. switching to predictions mode): drop any lens
-    // so a later remount starts clean.
+    document.removeEventListener('phenology:clear-brush', this._onClear)
+    // Leaving the explorer: drop any lens so a later remount starts clean.
     phenologyState.setSelection({ mode: 'click_drag' })
   },
 
@@ -42,7 +46,7 @@ export default {
     const el = this.el.querySelector(`[data-sel="${sel}"]`)
     if (!el || el.value === '') return null
     const n = parseFloat(el.value)
-    return Number.isNaN(n) ? null : n
+    return Number.isFinite(n) ? n : null
   },
 
   readDoy() {
@@ -50,7 +54,9 @@ export default {
     if (!el || !el.value) return null
     const d = new Date(el.value + 'T00:00:00Z')
     if (Number.isNaN(d.getTime())) return null
-    return doyOf(d)
+    // Keep the existing plotted DOY convention, including leap-year dates.
+    return Math.floor((Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) -
+      Date.UTC(d.getUTCFullYear(), 0, 0)) / 86400000)
   },
 
   // Show only the input groups relevant to the active mode. A group can
@@ -65,6 +71,8 @@ export default {
   publish() {
     const mode = this.currentMode()
     this.syncGroups(mode)
+    const error = this.el.querySelector('[data-sel-error]')
+    error.classList.add('hidden')
 
     if (mode === 'date_range') {
       phenologyState.setSelection({
@@ -72,14 +80,14 @@ export default {
         doy: this.readDoy(),
         days: this.readNum('days'),
       })
-    } else if (mode === 'season_index') {
+    } else if (mode === 'seasonal_landmark') {
       const doy = this.readDoy()
       const lat = this.readNum('lat')
-      const thr = this.readNum('thr')
-      const si = doy != null && lat != null ? seasonIndex(doy, lat) : null
-      // doy/lat kept on the object so the CSV link can send them to the
-      // server, which recomputes si identically.
-      phenologyState.setSelection({ mode: 'season_index', si, thr, doy, lat })
+      const days = this.readNum('days')
+      const window = this.clock.window(doy, lat, days)
+      error.classList.toggle('hidden', window !== null)
+      // Keep the reference inputs for CSV; the server recomputes the same edges.
+      phenologyState.setSelection({mode, clock: this.clock, window, doy, lat, days})
     } else {
       phenologyState.setSelection({ mode: 'click_drag' })
     }

@@ -1,5 +1,6 @@
 // Shared client-side selection for the chart, table, count and CSV link.
 // Selection gestures never round-trip through LiveView.
+import { inWindow } from './seasonal_clock'
 
 const listeners = new Set()
 
@@ -8,13 +9,12 @@ export const phenologyState = {
   // lat_max} or null when no brush is active.
   brush: null,
 
-  // Active selection lens, mirroring the legacy doyCalc "Selection mode":
+  // Active selection lens:
   //   { mode: 'click_drag' }                       → use the chart brush
   //   { mode: 'date_range',   doy, days }          → circular DOY window
-  //   { mode: 'season_index', si, thr }            → circular seasind band
+  //   { mode: 'seasonal_landmark', clock, window } → shared-clock band
   // Modes are mutually exclusive (a radio picks one), matching the Shiny
-  // app. Season index (si) is precomputed in the select hook from a date +
-  // latitude, so no one has to type a raw seasind value.
+  // app. The landmark edges come from a date ± days at a reference latitude.
   selection: { mode: 'click_drag' },
 
   setBrush(b) {
@@ -75,14 +75,12 @@ export function applyDateRange(points, { doy, days }) {
   )
 }
 
-// Circular season-index band |seasind - si| <= thr, matching the legacy
-// doyCalc "Season index" mode (mod_dist on the 0..1 seasind circle). `si`
-// is precomputed from a date + latitude, so users never type a raw value.
-export function applySeasonIndex(points, { si, thr }) {
-  if (si == null || thr == null) return points
-  return points.filter(
-    (p) => typeof p.seasind === 'number' && modDist(p.seasind, si) <= thr,
-  )
+// Use plotted DOY/latitude, not the legacy imported seasind column. Incomplete
+// references select nothing; the controls explain what needs correcting.
+export function applySeasonalLandmark(points, {clock, window}) {
+  if (!clock || !window) return []
+  return points.filter(p => Number.isFinite(p.doy) && p.doy >= 1 && p.doy <= 366 &&
+    inWindow(clock.coordinate(p.doy, p.lat), window))
 }
 
 // The visible selection, dispatched on the active mode. Everything that
@@ -93,8 +91,8 @@ export function applySelection(points) {
   switch (sel.mode) {
     case 'date_range':
       return applyDateRange(points, sel)
-    case 'season_index':
-      return applySeasonIndex(points, sel)
+    case 'seasonal_landmark':
+      return applySeasonalLandmark(points, sel)
     default:
       return applyBrush(points, phenologyState.brush)
   }
@@ -102,11 +100,6 @@ export function applySelection(points) {
 
 function mod365(x) {
   return ((x % 365) + 365) % 365
-}
-
-function modDist(a, b) {
-  const d = Math.abs(a - b)
-  return Math.min(d, 1 - d)
 }
 
 // HTML escape for any user-controlled or external-API string interpolated

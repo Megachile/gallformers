@@ -23,6 +23,33 @@ defmodule Gallformers.Phenology.SeasonalClock do
   @spec supported_latitude?(term()) :: boolean()
   def supported_latitude?(lat), do: is_number(lat) and lat >= 25 and lat <= 55
 
+  @doc "The exact bundled reference, as JSON-encodable rows for client-side selection."
+  @spec reference() :: [[float()]]
+  def reference, do: Enum.map(@anchors, &Tuple.to_list/1)
+
+  @doc "Clock edges for a plotted DOY ± calendar days at a reference latitude."
+  @spec window(term(), term(), term()) :: {:ok, {float(), float()}} | :error
+  def window(doy, lat, days) do
+    if is_number(doy) and doy == trunc(doy) and doy >= 1 and doy <= 366 and
+         supported_latitude?(lat) and is_number(days) and days >= 0 and days <= 183 do
+      {:ok, {coordinate(doy - days, lat), coordinate(doy + days, lat)}}
+    else
+      :error
+    end
+  end
+
+  @doc "Whether a plotted day/latitude falls inside a circular landmark window."
+  @spec in_window?(term(), term(), {float(), float()}) :: boolean()
+  def in_window?(day, lat, {low, high}) do
+    if is_number(day) and day >= 1 and day <= 366 and supported_latitude?(lat) do
+      delta = coordinate(day, lat) - low
+      offset = delta - floor(delta / 365) * 365
+      high - low >= 365 or offset <= high - low + 1.0e-8 or offset >= 365 - 1.0e-8
+    else
+      false
+    end
+  end
+
   @doc "Interpolated spring and autumn thermal landmarks in calendar days."
   @spec anchors(number()) :: {float(), float()}
   def anchors(lat) when is_number(lat) and lat >= 25 and lat <= 55 do

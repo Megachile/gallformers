@@ -22,7 +22,7 @@ of host budbreak or leaf senescence.
 The warm interval maps to 0–182.5 clock units; autumn through the following spring
 maps to 182.5–365. Both segments are linear, continuous, monotone and periodic.
 Latitude interpolation is linear between adjacent grid rows. Inversion supplies
-both the chart contours and the displayed dates. Dates use a fixed non-leap year;
+both the chart contours and the displayed dates. Prediction dates use a fixed non-leap year;
 February 29 maps to February 28.
 
 The prediction layer pools selected species within generation. It collapses
@@ -38,6 +38,29 @@ It is not proof of the true first induction date or a confidence bound. Curate
 the upstream stage label to correct it; there are no per-species overrides.
 The circular centering still assumes a coherent season, not year-round or
 several independent developing phases.
+
+### Observation selection
+
+The explorer's Seasonal landmark selection replaces the legacy season-index
+lens. A reference date and latitude define a calendar-day window (±0–183 days);
+its two clock coordinates are transferred across 25–55°N. The browser receives
+the exact bundled reference through the Phenology context API. It uses matching
+forward/inverse arithmetic, not another climate artifact or imported `seasind`.
+The clipped selection band wraps across the new year without shading unrelated
+dates between its two visible pieces.
+
+This is a display-only lens: table, species list, selected count and CSV agree,
+while prediction inputs and plotted observations remain unchanged. The server
+recomputes CSV membership from reference inputs. Invalid or incomplete landmark
+inputs select nothing, show a correction message and return HTTP 400 on export;
+records outside the reference latitude domain cannot be selected by this mode.
+Clear selection returns to click-and-drag mode.
+
+Selection retains the existing plotted/stored DOY convention, including day 366
+in leap years. It does not rewrite source dates or the prediction layer's
+non-leap normalization. This existing calendar distinction can produce one-day
+differences between a leap-year point and a normalized prediction. The legacy
+`seasind` database field remains import provenance, not selection input.
 
 ### Retired local-onset pilot
 

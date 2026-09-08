@@ -7,7 +7,7 @@ defmodule GallformersWeb.PhenologyControllerTest do
   use GallformersWeb.ConnCase, async: true
 
   alias Gallformers.Phenology
-  alias Gallformers.Phenology.Math, as: PhenologyMath
+  alias Gallformers.Phenology.SeasonalClock
   alias Gallformers.Repo
   alias Gallformers.Species.Species
   alias Gallformers.Taxonomy.Taxonomy
@@ -114,6 +114,7 @@ defmodule GallformersWeb.PhenologyControllerTest do
       sp2 = insert_gall("Aulacidea b (sexgen)")
       insert_obs(sp1.id, %{})
       insert_obs(sp1.id, %{date: ~D[2024-07-01], doy: 183})
+      insert_obs(sp1.id, %{date: ~D[2025-02-01], doy: 32})
       insert_obs(sp2.id, %{})
 
       conn = get(conn, ~p"/phenology/export.csv?search=&display=species")
@@ -124,8 +125,8 @@ defmodule GallformersWeb.PhenologyControllerTest do
 
       body = response(conn, 200)
       assert body =~ "species,n_obs"
-      assert body =~ "Acraspis a (agamic),2"
-      assert body =~ "Aulacidea b (sexgen),1"
+      assert body =~ "Acraspis a (agamic),3,2025-02-01"
+      assert body =~ "Aulacidea b (sexgen),1,2024-06-15"
     end
 
     test "?search= clears default and exports across species", %{conn: conn} do
@@ -279,27 +280,72 @@ defmodule GallformersWeb.PhenologyControllerTest do
       refute body =~ ",250,"
     end
 
-    test "sel_mode=season_index narrows the exported CSV to the seasind band", %{conn: conn} do
-      # Server recomputes the season index from sel_doy + sel_lat exactly as
-      # the client does, so derive the reference value the same way here.
-      si = PhenologyMath.season_index(120, 40.0)
-
+    test "landmark selection uses day and latitude, not legacy seasind", %{conn: conn} do
       sp = insert_gall("Acraspis erinacei (agamic)")
-      insert_obs(sp.id, %{doy: 100, date: ~D[2024-04-09], seasind: si})
-      insert_obs(sp.id, %{doy: 260, date: ~D[2024-09-16], seasind: min(si + 0.3, 0.99)})
+      projected = SeasonalClock.coordinate(120, 40) |> SeasonalClock.inverse(30) |> round()
+      insert_obs(sp.id, %{doy: projected, latitude: 30.0, seasind: nil})
+      insert_obs(sp.id, %{doy: 260, latitude: 30.0, seasind: 0.1})
+      insert_obs(sp.id, %{doy: 120, latitude: 20.0, seasind: 0.1})
 
       body =
         conn
         |> get(
-          ~p"/phenology/export.csv?search=&display=table&sel_mode=season_index&sel_doy=120&sel_lat=40&sel_thr=0.02"
+          ~p"/phenology/export.csv?search=&display=table&sel_mode=seasonal_landmark&sel_doy=120&sel_lat=40&sel_days=10"
         )
         |> response(200)
 
-      # Only the obs whose seasind sits inside the ±0.02 band survives.
       lines = String.split(body, "\n", trim: true)
       assert length(lines) == 2
-      assert Enum.at(lines, 1) =~ ",100,"
+      assert Enum.at(lines, 1) =~ ",#{projected},"
       refute body =~ ",260,"
+    end
+
+    test "landmark export wraps winter and preserves inclusive reference boundaries", %{
+      conn: conn
+    } do
+      sp = insert_gall("Winter selection (agamic)")
+
+      for day <- [345, 355, 5, 6, 200] do
+        insert_obs(sp.id, %{doy: day, latitude: 40.0})
+      end
+
+      body =
+        conn
+        |> get(
+          ~p"/phenology/export.csv?search=&sel_mode=seasonal_landmark&sel_doy=355&sel_lat=40&sel_days=15"
+        )
+        |> response(200)
+
+      assert length(String.split(body, "\n", trim: true)) == 4
+      for day <- [345, 355, 5], do: assert(body =~ ",#{day},")
+      for day <- [6, 200], do: refute(body =~ ",#{day},")
+    end
+
+    test "invalid landmark selection cannot silently download the full dataset", %{conn: conn} do
+      valid = %{
+        "sel_mode" => "seasonal_landmark",
+        "sel_doy" => "120",
+        "sel_lat" => "40",
+        "sel_days" => "10"
+      }
+
+      for {key, value} <- [
+            {"sel_doy", ""},
+            {"sel_doy", "0"},
+            {"sel_doy", "367"},
+            {"sel_doy", "12.5"},
+            {"sel_lat", "24.9"},
+            {"sel_lat", "55.1"},
+            {"sel_lat", "40junk"},
+            {"sel_days", "-1"},
+            {"sel_days", "184"},
+            {"sel_days", "NaN"}
+          ] do
+        invalid = Map.put(valid, key, value)
+
+        assert conn |> get(~p"/phenology/export.csv", invalid) |> response(400) =~
+                 "Choose a reference"
+      end
     end
 
     test "brush bounds in URL narrow the exported CSV", %{conn: conn} do

@@ -34,13 +34,13 @@ export default {
       if (sel.doy != null) params.set('sel_mode', 'date_range')
       if (sel.doy != null) params.set('sel_doy', String(sel.doy))
       if (sel.days != null) params.set('sel_days', String(sel.days))
-    } else if (sel.mode === 'season_index') {
-      // Send date + latitude; the server recomputes the season index the
-      // same way the client did, so the two never drift.
-      if (sel.doy != null) params.set('sel_mode', 'season_index')
+    } else if (sel.mode === 'seasonal_landmark') {
+      // Send reference inputs, not client-computed thresholds. Invalid or
+      // incomplete references receive a validation response, not a full export.
+      params.set('sel_mode', 'seasonal_landmark')
       if (sel.doy != null) params.set('sel_doy', String(sel.doy))
       if (sel.lat != null) params.set('sel_lat', String(sel.lat))
-      if (sel.thr != null) params.set('sel_thr', String(sel.thr))
+      if (sel.days != null) params.set('sel_days', String(sel.days))
     } else {
       const brush = phenologyState.brush
       if (brush) {

@@ -33,6 +33,22 @@ defmodule Gallformers.Phenology do
   defdelegate predict(observations, latitude, events, opts \\ []),
     to: Gallformers.Phenology.Prediction
 
+  @doc "Bundled landmark rows shared with client-side selection."
+  @spec seasonal_reference() :: [[float()]]
+  defdelegate seasonal_reference(), to: Gallformers.Phenology.SeasonalClock, as: :reference
+
+  @doc "Selection clock edges for a reference day, latitude and calendar-day margin."
+  @spec seasonal_window(term(), term(), term()) :: {:ok, {float(), float()}} | :error
+  defdelegate seasonal_window(day, latitude, days),
+    to: Gallformers.Phenology.SeasonalClock,
+    as: :window
+
+  @doc "Whether a plotted day/latitude lies within the selected landmark window."
+  @spec in_seasonal_window?(term(), term(), {float(), float()}) :: boolean()
+  defdelegate in_seasonal_window?(day, latitude, window),
+    to: Gallformers.Phenology.SeasonalClock,
+    as: :in_window?
+
   # ----------------------------------------------------------------------
   # Observations
   # ----------------------------------------------------------------------

@@ -51,6 +51,7 @@ defmodule GallformersWeb.PhenologyLive do
         page_image: nil,
         page_json_ld: nil,
         explorer_phenophases: PhenologyFilters.explorer_phenophases(),
+        landmarks_json: Jason.encode!(Phenology.seasonal_reference()),
         # Grouped list of family/tribe/genus nodes that actually have
         # phenology data, for the taxon selector. Loaded in the live mount
         # alongside observations so the dead render doesn't pay for it.
@@ -907,6 +908,7 @@ defmodule GallformersWeb.PhenologyLive do
                 id="phenology-select"
                 phx-hook="PhenologySelect"
                 phx-update="ignore"
+                data-landmarks={@landmarks_json}
                 class="rounded-lg border border-gray-200 bg-gray-50 p-3"
               >
                 <div class="flex flex-wrap items-start gap-x-6 gap-y-3">
@@ -936,70 +938,49 @@ defmodule GallformersWeb.PhenologyLive do
                         <input
                           type="radio"
                           name="phenology-sel-mode"
-                          value="season_index"
+                          value="seasonal_landmark"
                           class="gf-radio"
-                        /> Season index
+                        /> Seasonal landmark
                       </label>
                     </div>
                   </div>
 
-                  <div data-sel-group="date_range season_index" class="hidden">
-                    <label class="block text-xs font-semibold text-gray-600 mb-1">
-                      Reference date <span class="font-normal text-gray-400">(year ignored)</span>
-                    </label>
-                    <input
+                  <div data-sel-group="date_range seasonal_landmark" class="hidden">
+                    <.input
+                      id="phenology-selection-date"
+                      name="selection_date"
+                      label="Reference date"
                       type="date"
                       data-sel="date"
                       value={Date.to_iso8601(Date.utc_today())}
-                      class="rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
                     />
                   </div>
 
-                  <div data-sel-group="date_range" class="hidden">
-                    <label class="block text-xs font-semibold text-gray-600 mb-1">
-                      Days before / after
-                    </label>
-                    <input
+                  <div data-sel-group="date_range seasonal_landmark" class="hidden w-40">
+                    <.input
+                      id="phenology-selection-days"
+                      name="selection_days"
+                      label="Days before / after"
                       type="number"
                       data-sel="days"
-                      min="1"
+                      min="0"
                       max="183"
                       value="10"
-                      class="w-24 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
                     />
                   </div>
 
-                  <div data-sel-group="season_index" class="hidden">
-                    <div class="flex items-end gap-3">
-                      <div>
-                        <label class="block text-xs font-semibold text-gray-600 mb-1">
-                          Latitude (°N)
-                        </label>
-                        <input
-                          type="number"
-                          data-sel="lat"
-                          min="-90"
-                          max="90"
-                          step="0.5"
-                          value="40"
-                          class="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
-                        />
-                      </div>
-                      <div>
-                        <label class="block text-xs font-semibold text-gray-600 mb-1">
-                          Tolerance
-                        </label>
-                        <input
-                          type="number"
-                          data-sel="thr"
-                          min="0.005"
-                          max="0.5"
-                          step="0.005"
-                          value="0.05"
-                          class="w-24 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-gf-maroon focus:outline-none"
-                        />
-                      </div>
-                    </div>
+                  <div data-sel-group="seasonal_landmark" class="hidden w-32">
+                    <.input
+                      id="phenology-selection-lat"
+                      name="selection_lat"
+                      label="Latitude (°N)"
+                      type="number"
+                      data-sel="lat"
+                      min="25"
+                      max="55"
+                      step="0.5"
+                      value="40"
+                    />
                   </div>
                 </div>
 
@@ -1011,11 +992,11 @@ defmodule GallformersWeb.PhenologyLive do
                   Selects observations within the chosen number of days of your
                   reference date (year ignored; wraps across the new year).
                 </p>
-                <p data-sel-group="season_index" class="hidden mt-2 text-xs text-gray-500">
-                  Selects observations at a similar point in the annual daylight
-                  cycle to your reference date at this latitude — comparable
-                  across latitudes even though the calendar dates differ.
-                  Tolerance widens the band.
+                <p data-sel-group="seasonal_landmark" class="hidden mt-2 text-xs text-gray-500">
+                  Follows the prediction clock across 25–55°N, shifting your date window with latitude.
+                </p>
+                <p data-sel-error class="hidden mt-2 text-xs text-amber-800" role="status">
+                  Choose a date, latitude between 25°N and 55°N, and 0–183 days before / after.
                 </p>
               </div>
 

@@ -22,7 +22,7 @@ defmodule GallformersWeb.PhenologyFilters do
     browsers omit the `phenophases` key entirely).
   """
 
-  alias Gallformers.Phenology.Math, as: PhenologyMath
+  alias Gallformers.Phenology
   alias Gallformers.Species
 
   @default_search ["Dryocosmus quercuspalustris"]
@@ -156,13 +156,12 @@ defmodule GallformersWeb.PhenologyFilters do
   end
 
   @doc """
-  Parse the display-only selection lens from URL params, mirroring the
-  legacy doyCalc "Selection mode". Returns one of:
+  Parse the display-only selection lens from URL params. Returns one of:
 
     * `{:date_range, doy, days}`   — center DOY ± days (circular window)
-    * `{:season_index, si, thr}`   — season-index band; `si` is recomputed
-      here from `sel_doy` + `sel_lat` via `Phenology.Math.season_index/2`,
-      the same way the client computed it, so the CSV can't drift
+    * `{:seasonal_landmark, {low, high}}` — shared clock edges computed from
+      `sel_doy`, `sel_lat` and `sel_days`, matching the client selection
+    * `{:error, :invalid_landmark_selection}` — invalid or incomplete reference
     * `nil`                        — no lens (or brush handled separately)
 
   The lens narrows the CSV export only; it never affects predictions.
@@ -176,18 +175,28 @@ defmodule GallformersWeb.PhenologyFilters do
     end
   end
 
-  def parse_selection(%{"sel_mode" => "season_index"} = params) do
-    with {:ok, doy} <- to_number(params["sel_doy"]),
-         {:ok, lat} <- to_number(params["sel_lat"]),
-         {:ok, thr} <- to_number(params["sel_thr"]) do
-      doy = doy |> trunc() |> min(365) |> max(1)
-      {:season_index, PhenologyMath.season_index(doy, lat), thr}
+  def parse_selection(%{"sel_mode" => "seasonal_landmark"} = params) do
+    with {:ok, doy} <- selection_number(params["sel_doy"]),
+         {:ok, lat} <- selection_number(params["sel_lat"]),
+         {:ok, days} <- selection_number(params["sel_days"]),
+         {:ok, window} <- Phenology.seasonal_window(doy, lat, days) do
+      {:seasonal_landmark, window}
     else
-      _ -> nil
+      _ -> {:error, :invalid_landmark_selection}
     end
   end
 
   def parse_selection(_params), do: nil
+
+  defp selection_number(value) when is_binary(value) do
+    case Float.parse(value) do
+      {number, ""} -> {:ok, number}
+      _ -> :error
+    end
+  end
+
+  defp selection_number(value) when is_number(value), do: {:ok, value}
+  defp selection_number(_), do: :error
 
   # ----------------------------------------------------------------------
   # Search

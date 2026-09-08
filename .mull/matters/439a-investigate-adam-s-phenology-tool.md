@@ -466,3 +466,55 @@ window selects 647 records; its table/count/species CSV agree. Prediction payloa
 remain identical, including across panel changes. The reusable local QA script
 is `Phenology/local-imports/release-review/landmark-selection.cjs`; no QA scripts
 or curated observation data were added to the application repository.
+
+### Explicit local study-data promotion (September 8 UTC)
+
+Adam requested carrying the saved study records into the localhost display.
+The port-4003 preview reads local PostgreSQL gallformers_dev, not the Windows
+CSV. Its read-only serving configuration was retained. A separate explicit
+one-shot import updated only the requested observation identities; application
+code, schema, production data and the canonical Windows SQLite were unchanged.
+
+The local display now contains 398 eburneum iNat records, 12 fumosa iNat records
+and 47 annotated pulchripennis leaf-gall records from the saved curated snapshots.
+This inserted 454 and updated three existing records. One of those updates
+corrected observation 129680592 from old GF 596 to eburneum GF 1728, confirmed by
+the saved curated iNat taxonomy. Five legacy fumosa Adult phases normalize to
+Free-living, with raw phases retained. Existing literature is preserved rather
+than reconstructing exact dates from undated historical bounds. Senescent rows
+are stored but remain unplotted, per the existing display contract.
+
+Audited import script: Phenology/local-imports/release-review/import_study_batch.py.
+Before-state, incoming rows, exclusions and manifest are preserved under
+Phenology/local-imports/display-study-20260908T053045940987Z. A locked transaction
+checks the complete before-state before applying changes. Post-import verification
+confirms all incoming fields and unchanged unrelated records. Repeating the dry
+run reports zero inserts/updates. Browser and CSV checks show 314 visible eburneum,
+19 fumosa and 32 pulchripennis observations, with working predictions and matching
+gall/explorer charts and no page errors.
+
+Outstanding: nine BugGuide adults and four iNat adults remain provisional,
+unassociated evidence, not silently assigned to pulchripennis agamic. The current
+schema requires a confirmed GF species ID, derives generation from that species,
+and supports only inat/literature sources. Adam was asked whether to add a separate
+candidate-adult section excluded from agamic predictions; this display decision
+is not yet answered or implemented. One additional pulchripennis gall (195310724)
+lacks usable date/location and remains in its source snapshot. The nine BugGuide
+records and corrected user metadata are safely retained in the external intake.
+This local data update is not a production release or an import bundled in PR 578.
+
+### Restore evidence emphasis in both plots
+
+Adam noticed viable dormant observations no longer stood out. The Shiny chart
+used full opacity for viable records or nonmissing insect life stages; that rule
+had not carried into the JS renderer. Both charts now give explicit viable or
+nonblank insect-stage records full fill/stroke opacity, leaving ordinary records
+at 0.25. Highlighted observations draw above ordinary points, while prediction
+boundaries remain above all points. Hover/mouseout preserves the distinction.
+Shapes, colors, point counts, filters, stored data and predictions are unchanged.
+A shared-renderer test covers both modes, viable developing/dormant records,
+larval/adult annotations, blank stages, hover restoration, draw order and redraw.
+Verification: 192 JavaScript tests and 2,212 Elixir tests pass (84 standard
+exclusions); assets build succeeds. Real-browser desktop/mobile checks verify
+evidence-based opacity in both views, foreground prediction layers, hover,
+independent controls, matching dates and no page errors or horizontal overflow.

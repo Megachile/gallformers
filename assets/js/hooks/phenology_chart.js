@@ -44,6 +44,12 @@ const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct
 const POINT_AREA = 36
 const POINT_OPACITY = 0.25
 
+// Viability and insect-stage evidence are independent of gall phenophase.
+function pointOpacity(d) {
+  return d.viability === 'viable' || (typeof d.lifestage === 'string' && d.lifestage.trim() !== '')
+    ? 1 : POINT_OPACITY
+}
+
 export default {
   mounted() {
     this.renderChart()
@@ -260,15 +266,15 @@ export default {
     // own mouseover; the brush still works for empty-area drag-selection.
     const symbolGen = symbol().size(POINT_AREA)
     svg.selectAll('path.obs')
-      .data(points).enter()
+      .data(points.slice().sort((a, b) => pointOpacity(a) - pointOpacity(b))).enter()
       .append('path')
         .attr('class', 'obs')
         .attr('d', d => symbolGen.type(PHENO_SYMBOL[d.phenophase] || symbolCircle)())
         .attr('transform', d => `translate(${x(d.doy)},${y(d.lat)})`)
         .attr('fill', d => GEN_COLOR[d.generation] || GEN_COLOR.unknown)
-        .attr('fill-opacity', POINT_OPACITY)
+        .attr('fill-opacity', pointOpacity)
         .attr('stroke', '#222')
-        .attr('stroke-opacity', POINT_OPACITY)
+        .attr('stroke-opacity', pointOpacity)
         .attr('stroke-width', 0.4)
         .style('cursor', 'pointer')
         .style('pointer-events', 'all')
@@ -290,8 +296,8 @@ export default {
           tooltip.style('top',  (event.pageY - 12) + 'px')
                  .style('left', (event.pageX + 12) + 'px')
         })
-        .on('mouseout', function () {
-          select(this).attr('fill-opacity', POINT_OPACITY).attr('stroke-opacity', POINT_OPACITY)
+        .on('mouseout', function (event, d) {
+          select(this).attr('fill-opacity', pointOpacity(d)).attr('stroke-opacity', pointOpacity(d))
           tooltip.style('display', 'none').style('visibility', 'hidden')
         })
 

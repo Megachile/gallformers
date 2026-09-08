@@ -19,6 +19,42 @@ function render(prediction) {
 }
 
 describe('phenology prediction semantics', () => {
+  test('both views emphasize viable or insect-stage records, above ordinary points and after hover', () => {
+    for (const selectionEnabled of ['true', 'false']) {
+      const el = document.createElement('div')
+      Object.defineProperties(el, {clientWidth: {value: 800}, clientHeight: {value: 540}})
+      el.dataset.selectionEnabled = selectionEnabled
+      const points = [
+        {viability: 'viable', phenophase: 'dormant'},
+        {lifestage: null, phenophase: 'dormant'},
+        {lifestage: 'Larva', phenophase: 'developing'},
+        {viability: 'not viable', lifestage: ' ', phenophase: 'dormant'},
+        {lifestage: 'Adult', phenophase: 'dormant'},
+        {viability: 'viable', phenophase: 'developing'},
+        {lifestage: '', phenophase: 'developing'}
+      ].map((p, id) => ({id, lat: 35, doy: 150, generation: 'agamic', ...p}))
+      el.dataset.points = JSON.stringify(points)
+      const hook = {...Chart, el}
+      hook.renderChart()
+      const dots = [...el.querySelectorAll('.obs')]
+      expect(dots.map(d => d.__data__.id)).toEqual([1, 3, 6, 0, 2, 4, 5])
+      expect(JSON.parse(el.dataset.points)).toEqual(points)
+      for (const dot of dots) {
+        const expected = [0, 2, 4, 5].includes(dot.__data__.id) ? '1' : '0.25'
+        expect(dot.getAttribute('fill-opacity')).toBe(expected)
+        expect(dot.getAttribute('stroke-opacity')).toBe(expected)
+        dot.dispatchEvent(new MouseEvent('mouseover', {bubbles: true}))
+        expect(dot.getAttribute('fill-opacity')).toBe('1')
+        dot.dispatchEvent(new MouseEvent('mouseout', {bubbles: true}))
+        expect(dot.getAttribute('fill-opacity')).toBe(expected)
+        expect(dot.getAttribute('stroke-opacity')).toBe(expected)
+      }
+      hook.renderChart(true)
+      expect([...el.querySelectorAll('.obs')].filter(d => d.getAttribute('fill-opacity') === '1')).toHaveLength(4)
+      hook.destroyed()
+    }
+  })
+
   test('both views omit senescent dots and legend entries without removing input records or predictions', () => {
     for (const selectionEnabled of ['true', 'false']) {
       const el = document.createElement('div')

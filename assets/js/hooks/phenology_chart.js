@@ -4,18 +4,17 @@ import { axisBottom, axisLeft } from 'd3-axis'
 import { extent } from 'd3-array'
 import { brush } from 'd3-brush'
 import { symbol, symbolCircle, symbolTriangle, symbolSquare,
-         symbolStar, symbolCross, symbolDiamond, symbolWye } from 'd3-shape'
+         symbolStar, symbolCross, symbolDiamond } from 'd3-shape'
 import { phenologyState } from './phenology_state'
 import { seasindProfile, doyForSeasindFromProfile } from './season_index'
 
-// Mapping must match `Gallformers.Phenology.Observation.phenophases/0`.
+// Symbols for displayed phenophases. Senescent records are not plotted.
 const PHENO_SYMBOL = {
   'developing':  symbolCircle,
   'maturing':    symbolTriangle,
   'dormant':     symbolSquare,
   'perimature':  symbolCross,
   'oviscar':     symbolStar,
-  'senescent':   symbolWye,
   'Free-living': symbolDiamond,
 }
 
@@ -38,7 +37,6 @@ const PHENO_LABEL = {
   'dormant':     'Dormant',
   'perimature':  'Recently emerged',
   'oviscar':     'Oviposition scar',
-  'senescent':   'Senescent',
   'Free-living': 'Free-living',
 }
 
@@ -98,9 +96,11 @@ export default {
 
   renderChart(preserveBrush = false) {
     const pointsRaw = this.el.dataset.points || '[]'
-    const points = JSON.parse(pointsRaw).filter(p => Number.isFinite(p.lat) &&
+    const points = JSON.parse(pointsRaw).filter(p => p.phenophase !== 'senescent' && Number.isFinite(p.lat) &&
       p.lat >= -90 && p.lat <= 90 && Number.isFinite(p.doy) && p.doy >= 1 && p.doy <= 366)
     const selectionEnabled = this.el.dataset.selectionEnabled !== 'false'
+    const targetLats = selectionEnabled && points.length > 0 ? [] : JSON.parse(this.el.dataset.predictions || '[]')
+      .map(p => p.target_lat).filter(Number.isFinite)
     this._lastPointsRaw = pointsRaw
     this._lastLatRange = this.el.dataset.latRange
     this._lastWidth = this.el.clientWidth
@@ -122,7 +122,7 @@ export default {
     this._x = null
     this._y = null
     this._overlayG = null
-    if (points.length === 0 && !this.el.dataset.latRange) {
+    if (points.length === 0 && targetLats.length === 0 && !this.el.dataset.latRange) {
       select(this.el).append('div')
         .style('padding', '40px')
         .style('text-align', 'center')
@@ -163,8 +163,6 @@ export default {
         .style('z-index', '1000')
 
     const x = scaleLinear().domain([-5, 371]).range([0, width])
-    const targetLats = selectionEnabled ? [] : JSON.parse(this.el.dataset.predictions || '[]')
-      .map(p => p.target_lat).filter(Number.isFinite)
     const latExtent = this.el.dataset.latRange ? JSON.parse(this.el.dataset.latRange)
       : extent([...points.map(p => p.lat), ...targetLats])
     const latPad = Math.max(1, (latExtent[1] - latExtent[0]) * 0.05)

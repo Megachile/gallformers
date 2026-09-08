@@ -19,6 +19,40 @@ function render(prediction) {
 }
 
 describe('phenology prediction semantics', () => {
+  test('both views omit senescent dots and legend entries without removing input records or predictions', () => {
+    for (const selectionEnabled of ['true', 'false']) {
+      const el = document.createElement('div')
+      Object.defineProperties(el, {clientWidth: {value: 800}, clientHeight: {value: 540}})
+      el.dataset.selectionEnabled = selectionEnabled
+      const oldGall = {lat: 35, doy: 250, generation: 'agamic', phenophase: 'senescent'}
+      const freshGall = {lat: 35, doy: 150, generation: 'sexgen', phenophase: 'developing'}
+      const prediction = {event: 'rearing', generation: 'agamic', target_lat: 35,
+        low_doy: 245, high_doy: 255,
+        contours: [{lat: 34, low_doy: 240, high_doy: 250}, {lat: 36, low_doy: 250, high_doy: 260}]}
+      el.dataset.predictions = JSON.stringify([prediction])
+      const hook = {...Chart, el}
+
+      for (const points of [[oldGall, freshGall], [oldGall]]) {
+        el.dataset.points = JSON.stringify(points)
+        hook.renderChart()
+        expect(JSON.parse(el.dataset.points)).toEqual(points)
+        expect(JSON.parse(el.dataset.predictions)).toEqual([prediction])
+        expect(el.querySelectorAll('.obs')).toHaveLength(points.length - 1)
+        const legend = [...el.querySelectorAll('.legend text')].map(node => node.textContent)
+        expect(legend).not.toContain('Senescent')
+        expect(legend.includes('Developing')).toBe(points.length === 2)
+        expect(el.querySelectorAll('.prediction-boundary')).toHaveLength(2)
+        expect(el.querySelectorAll('.prediction-date-marker')).toHaveLength(2)
+      }
+
+      el.dataset.predictions = '[]'
+      hook.renderChart()
+      expect(el.textContent).toContain('No observations to display')
+      expect(el.querySelector('svg')).toBeNull()
+      hook.destroyed()
+    }
+  })
+
   test('both views use identical muted points and foreground interval lines without hiding records', () => {
     const styles = []
     for (const selectionEnabled of ['true', 'false']) {

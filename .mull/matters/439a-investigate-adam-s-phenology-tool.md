@@ -408,6 +408,18 @@ succeeds. Actual-browser checks verify the new order, identical point opacity an
 layer ordering in both charts, functioning hover through foreground lines,
 independent controls, matching dates, and mobile layout without overflow.
 
+Senescent follow-up: Adam clarified that senescent observations should not be
+plotted or listed in the legend. The shared chart now excludes those points
+before drawing either view's symbols or legend. Stored/payload records, tables,
+exports and prediction input remain unchanged. Predictions still render when
+senescent records are the only supplied observations; the target latitude supplies
+the chart extent if no visible points remain. Regression tests cover both modes,
+mixed and senescent-only input, unchanged payloads, retained prediction lines,
+and the empty-chart message when there are neither visible points nor predictions.
+Verification: 2,208 Elixir tests and 186 JavaScript tests pass; assets build and
+actual-browser checks pass for both charts, including absence of senescent
+symbols/legend entries and unchanged prediction/panel controls.
+
 Release still requires maintainer acceptance and a separately reviewed, explicit
 curated data batch with an import audit. A complete GF–iNat crosswalk and scheduled
 imports are not prerequisites; unresolved identities must stay out of the batch.

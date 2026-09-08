@@ -72,7 +72,9 @@ thresholds and selected-event behavior are unchanged.
 Both charts use the same smaller, translucent observation symbols. Interval
 shading stays behind the points; outlines sit above them with a narrow white
 halo for contrast in dense datasets. Hover restores full point emphasis and
-source details. No observations are thinned or hidden by this styling.
+source details. No observations are thinned by this styling. Senescent records
+are omitted from plotted points and legends in both views, but remain in the
+underlying evidence, tables and exports; prediction inputs are unchanged.
 
 Emergence pools maturing and Free-living phases (not
 perimature or enclosed Adult annotations). Viable collections require explicit

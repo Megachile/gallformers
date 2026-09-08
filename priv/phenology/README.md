@@ -60,13 +60,19 @@ latitude input and shared date summary sit below it, rather than taking half
 the available plot width. The chart remains lazy-loaded and uses the explorer's
 plotting code in read-only selection mode.
 
-Both views present short, action-oriented sentences grouped by generation, with
-the predicted date or window emphasized. One closed-by-default “Evidence &
+Both views present short, action-oriented sentences grouped by generation, in
+fresh onset → viable collection → emergence order, with the predicted date or
+window emphasized. One closed-by-default “Evidence &
 methods” disclosure contains the source anchor, record counts, percentile context
 and model limitations. Few-record and latitude-coverage warnings remain visible
 beside the affected answer. A single-date window is printed once; winter windows
 retain their December–January order. This is presentation only: chart contours,
 thresholds and selected-event behavior are unchanged.
+
+Both charts use the same smaller, translucent observation symbols. Interval
+shading stays behind the points; outlines sit above them with a narrow white
+halo for contrast in dense datasets. Hover restores full point emphasis and
+source details. No observations are thinned or hidden by this styling.
 
 Emergence pools maturing and Free-living phases (not
 perimature or enclosed Adult annotations). Viable collections require explicit

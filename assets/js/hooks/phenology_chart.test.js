@@ -9,7 +9,8 @@ function render(prediction) {
   el.dataset.predictions = JSON.stringify([prediction])
   const svg = select(el).append('svg')
   const hook = {
-    el, _predictionG: svg.append('g'), _predictionLabelsG: svg.append('g'),
+    el, _predictionG: svg.append('g'), _predictionLinesG: svg.append('g'),
+    _predictionLabelsG: svg.append('g'),
     _x: scaleLinear().domain([0, 365]).range([0, 365]),
     _y: scaleLinear().domain([30, 40]).range([100, 0]), _width: 365
   }
@@ -18,6 +19,60 @@ function render(prediction) {
 }
 
 describe('phenology prediction semantics', () => {
+  test('both views use identical muted points and foreground interval lines without hiding records', () => {
+    const styles = []
+    for (const selectionEnabled of ['true', 'false']) {
+      const el = document.createElement('div')
+      Object.defineProperties(el, {clientWidth: {value: 800}, clientHeight: {value: 540}})
+      el.dataset.selectionEnabled = selectionEnabled
+      el.dataset.points = JSON.stringify(Array.from({length: 500}, (_, i) => ({
+        lat: 35 + i / 1000, doy: 150, generation: 'sexgen', phenophase: 'developing'
+      })))
+      const rows = [35, 35.5].map(lat => ({lat, low_doy: 145, high_doy: 155,
+        outer_low_doy: 140, outer_high_doy: 160, median_doy: 150}))
+      el.dataset.predictions = JSON.stringify([{event: 'emergence', generation: 'sexgen',
+        target_lat: 35.25, low_doy: 145, high_doy: 155, contours: rows}])
+      const hook = {...Chart, el}
+      hook.renderChart()
+      const points = [...el.querySelectorAll('.obs')]
+      expect(points).toHaveLength(500)
+      const point = points[0]
+      styles.push(['d', 'fill-opacity', 'stroke-opacity', 'stroke-width']
+        .map(attr => point.getAttribute(attr)))
+      expect(point.getAttribute('fill-opacity')).toBe('0.25')
+      expect(point.getAttribute('stroke-opacity')).toBe('0.25')
+      const parent = point.parentNode
+      const children = [...parent.children]
+      expect(children.indexOf(el.querySelector('.prediction-overlay'))).toBeLessThan(children.indexOf(point))
+      expect(children.indexOf(el.querySelector('.prediction-lines'))).toBeGreaterThan(children.indexOf(points.at(-1)))
+      expect(el.querySelector('.prediction-lines').getAttribute('pointer-events')).toBe('none')
+      expect(el.querySelector('.prediction-lines').getAttribute('clip-path'))
+        .toBe(el.querySelector('.prediction-overlay').getAttribute('clip-path'))
+      expect(el.querySelectorAll('.prediction-boundary-halo')).toHaveLength(2)
+      const edge = el.querySelector('.prediction-boundary')
+      const halo = el.querySelector('.prediction-boundary-halo')
+      expect(halo.getAttribute('stroke')).toBe('white')
+      expect(halo.getAttribute('stroke-dasharray')).toBe(edge.getAttribute('stroke-dasharray'))
+
+      point.dispatchEvent(new MouseEvent('mouseover', {bubbles: true}))
+      expect(point.getAttribute('fill-opacity')).toBe('1')
+      expect(point.getAttribute('stroke-opacity')).toBe('1')
+      expect(document.querySelector('.phenology-tooltip').style.visibility).toBe('visible')
+      point.dispatchEvent(new MouseEvent('mouseout', {bubbles: true}))
+      expect(point.getAttribute('fill-opacity')).toBe('0.25')
+      expect(point.getAttribute('stroke-opacity')).toBe('0.25')
+
+      expect(document.querySelector('.phenology-tooltip').style.display).toBe('none')
+
+      el.dataset.predictions = '[]'
+      hook.drawPredictions()
+      expect(el.querySelectorAll('.prediction-boundary, .prediction-boundary-halo, .prediction-median')).toHaveLength(0)
+      expect(el.querySelectorAll('.obs')).toHaveLength(500)
+      hook.destroyed()
+    }
+    expect(styles[0]).toEqual(styles[1])
+  })
+
   test('compact chart has no brush, preserves explorer selection, and includes the target latitude', () => {
     const el = document.createElement('div')
     Object.defineProperties(el, {clientWidth: {value: 550}, clientHeight: {value: 420}})

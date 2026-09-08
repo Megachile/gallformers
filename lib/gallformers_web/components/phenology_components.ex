@@ -126,8 +126,12 @@ defmodule GallformersWeb.PhenologyComponents do
 
   @doc "Shared date outputs and evidence limitations for both displays."
   def prediction_results(assigns) do
+    predictions = Enum.sort_by(assigns.predictions, &{&1.generation, event_order(&1.event)})
+
     assigns =
-      assign(assigns, :groups, Enum.group_by(assigns.predictions, & &1.generation) |> Enum.sort())
+      assigns
+      |> assign(:predictions, predictions)
+      |> assign(:groups, Enum.group_by(predictions, & &1.generation) |> Enum.sort())
 
     ~H"""
     <div class="mt-2 space-y-4">
@@ -229,6 +233,10 @@ defmodule GallformersWeb.PhenologyComponents do
     query = if lat in [nil, ""], do: query, else: Map.put(query, :lat, lat)
     "/phenology?" <> URI.encode_query(query)
   end
+
+  defp event_order(:onset), do: 0
+  defp event_order(:rearing), do: 1
+  defp event_order(:emergence), do: 2
 
   defp event_label(:onset), do: "Fresh gall onset"
   defp event_label(:emergence), do: "Adult emergence"

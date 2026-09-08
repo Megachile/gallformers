@@ -132,6 +132,22 @@ defmodule GallformersWeb.PhenologyComponentsTest do
     assert text_at(html, "details") =~ "Middle 80%"
     assert text_at(html, "details") =~ "median"
     assert text_at(html, "details") =~ "Anchor record"
+
+    for input <- [predictions, Enum.reverse(predictions)] do
+      ordered =
+        render_component(&PhenologyComponents.prediction_results/1, predictions: input)
+        |> LazyHTML.from_document()
+
+      assert ordered |> LazyHTML.query("[data-event]") |> LazyHTML.attribute("data-event") ==
+               ["onset", "rearing", "emergence"]
+
+      assert ordered |> LazyHTML.query("details .font-medium") |> Enum.map(&LazyHTML.text/1) ==
+               [
+                 "Fresh gall onset · Agamic generation",
+                 "Viable collections · Agamic generation",
+                 "Adult emergence · Agamic generation"
+               ]
+    end
   end
 
   test "generation headings group answers without changing their dates" do

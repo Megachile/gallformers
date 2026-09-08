@@ -44,6 +44,8 @@ const PHENO_LABEL = {
 
 const MONTH_TICKS  = [1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335]
 const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+const POINT_AREA = 36
+const POINT_OPACITY = 0.25
 
 export default {
   mounted() {
@@ -149,6 +151,7 @@ export default {
       .join('div')
         .attr('class', 'phenology-tooltip')
         .style('position', 'absolute')
+        .style('display', 'none')
         .style('visibility', 'hidden')
         .style('background', 'rgba(0, 0, 0, 0.85)')
         .style('color', '#fff')
@@ -257,7 +260,7 @@ export default {
 
     // Points — drawn on top of the brush overlay. Each path captures its
     // own mouseover; the brush still works for empty-area drag-selection.
-    const symbolGen = symbol().size(60)
+    const symbolGen = symbol().size(POINT_AREA)
     svg.selectAll('path.obs')
       .data(points).enter()
       .append('path')
@@ -265,17 +268,18 @@ export default {
         .attr('d', d => symbolGen.type(PHENO_SYMBOL[d.phenophase] || symbolCircle)())
         .attr('transform', d => `translate(${x(d.doy)},${y(d.lat)})`)
         .attr('fill', d => GEN_COLOR[d.generation] || GEN_COLOR.unknown)
-        .attr('fill-opacity', 0.55)
+        .attr('fill-opacity', POINT_OPACITY)
         .attr('stroke', '#222')
+        .attr('stroke-opacity', POINT_OPACITY)
         .attr('stroke-width', 0.4)
         .style('cursor', 'pointer')
         .style('pointer-events', 'all')
         .on('mouseover', function (event, d) {
-          select(this).attr('fill-opacity', 1)
+          select(this).attr('fill-opacity', 1).attr('stroke-opacity', 1)
           const speciesLine = d.species_name
             ? `<b>${escapeHtml(d.species_name)}</b><br>`
             : ''
-          tooltip.style('visibility', 'visible')
+          tooltip.style('display', 'block').style('visibility', 'visible')
             .html(`${speciesLine}<b>${escapeHtml(d.date)}</b>
                    <br>DOY ${d.doy} · lat ${d.lat.toFixed(2)}
                    <br>phenophase: ${escapeHtml(d.phenophase)}
@@ -289,9 +293,16 @@ export default {
                  .style('left', (event.pageX + 12) + 'px')
         })
         .on('mouseout', function () {
-          select(this).attr('fill-opacity', 0.55)
-          tooltip.style('visibility', 'hidden')
+          select(this).attr('fill-opacity', POINT_OPACITY).attr('stroke-opacity', POINT_OPACITY)
+          tooltip.style('display', 'none').style('visibility', 'hidden')
         })
+
+    // Keep interval shading below observations, but outlines above them in
+    // both views. The foreground must not intercept observation tooltips.
+    this._predictionLinesG = svg.append('g')
+      .attr('class', 'prediction-lines')
+      .attr('pointer-events', 'none')
+      .attr('clip-path', `url(#${predictionClipId})`)
 
     // Legend in the right margin — color = generation, shape = phenophase.
     // Built only from the values actually present so it never lists an
@@ -313,6 +324,8 @@ export default {
     if (!this._predictionG || !this._x || !this._y) return
     const g = this._predictionG
     g.selectAll('*').remove()
+    const lines = this._predictionLinesG
+    lines.selectAll('*').remove()
     const labels = this._predictionLabelsG
     labels.selectAll('*').remove()
     const predictions = JSON.parse(this.el.dataset.predictions || '[]')
@@ -335,7 +348,7 @@ export default {
         g.append('path').attr('class', 'prediction-outer-band')
           .attr('d', toPath([...outerLow, ...outerHigh.reverse()]) + 'Z')
           .attr('fill', color).attr('fill-opacity', 0.055)
-        g.append('path').attr('class', 'prediction-median')
+        lines.append('path').attr('class', 'prediction-median')
           .attr('d', toPath(rows.map(r => [x(r.median_doy + shift), y(r.lat)])))
           .attr('fill', 'none').attr('stroke', color).attr('stroke-width', 1.5)
           .attr('stroke-dasharray', '2,3')
@@ -345,9 +358,13 @@ export default {
           .attr('fill', color).attr('fill-opacity', 0.07)
       }
       for (const edge of (p.event === 'onset' ? [low] : [low, high])) {
-        g.append('path').attr('class', 'prediction-boundary').attr('d', toPath(edge))
+        const boundary = lines.append('path').attr('class', 'prediction-boundary').attr('d', toPath(edge))
           .attr('fill', 'none').attr('stroke', color).attr('stroke-width', 1.8)
           .attr('stroke-dasharray', p.event === 'rearing' ? '2,3' : ['emergence', 'adult_rearing', 'seasonal_observation'].includes(p.event) ? '6,4' : null)
+        // A narrow white halo keeps same-colored dense observations from
+        // swallowing the boundary. Lower all halos beneath the colored lines.
+        boundary.clone(true).attr('class', 'prediction-boundary-halo')
+          .attr('stroke', 'white').attr('stroke-width', 4).attr('stroke-opacity', 0.9).lower()
       }
       }
       if (p.target_lat < latLo || p.target_lat > latHi) return

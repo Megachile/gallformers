@@ -381,6 +381,33 @@ and closing of the disclosure without changing plot curves, mobile/half-screen
 layout, exact agreement between gall/explorer outputs and all existing controls.
 No observation data was modified.
 
+Follow-up: within each generation, summaries and evidence details now follow
+fresh gall onset → viable collections → adult emergence regardless of the model
+input order. This ordering is a presentation sort only; no prediction changes.
+The sentence-rendering test checks both forward and reversed input order.
+
+Dense-chart inspection found observations drawn after the prediction-overlay
+group, obscuring interval outlines, with 60px² symbols, 0.55 fill opacity and
+opaque dark outlines. Adam requested the same solution in both displays. Both
+now use 36px² symbols and 0.25 fill/stroke opacity, restoring full opacity on
+hover. Interval shading stays below points; interval outlines and medians occupy
+a clipped foreground layer that does not intercept pointer events. Narrow white
+halos beneath boundary strokes preserve contrast through dense same-color dots.
+All observations remain plotted: no downsampling, page-specific styling, density
+model or new visibility control. Prediction geometry and dates are unchanged.
+
+A 500-record JavaScript regression checks identical styling in both modes,
+layer ordering, clip paths, complete point retention, hover emphasis/tooltips,
+and removal of all foreground paths when predictions are toggled off. Actual
+hover-then-mobile testing also exposed an old invisible tooltip contributing to
+page overflow; hidden tooltips now use display:none as well as visibility:hidden.
+
+Verification: `mix precommit` passes (2,208 tests, 84 standard exclusions),
+Dialyzer reports zero errors, all 185 JavaScript tests pass, and assets build
+succeeds. Actual-browser checks verify the new order, identical point opacity and
+layer ordering in both charts, functioning hover through foreground lines,
+independent controls, matching dates, and mobile layout without overflow.
+
 Release still requires maintainer acceptance and a separately reviewed, explicit
 curated data batch with an import audit. A complete GF–iNat crosswalk and scheduled
 imports are not prerequisites; unresolved identities must stay out of the batch.
